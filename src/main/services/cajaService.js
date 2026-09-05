@@ -1,0 +1,96 @@
+'use strict';
+
+const { getDb } = require('../db/connection');
+
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const num = (v, def = 0) => { const n = Number(v); return Number.isFinite(n) ? n : def; };
+
+// ---------------- Turno de caja ----------------
+function corteAbiertoRow() {
+  return getDb().prepare("SELECT * FROM cortes_caja WHERE estado = 'abierto' ORDER BY id DESC LIMIT 1").get() || null;
+}
+
+/** Números en vivo de un turno (o del turno abierto). */
+function getCorte(id) {
+  const db = getDb();
+  const c = id ? db.prepare('SELECT * FROM cortes_caja WHERE id = ?').get(id) : corteAbiertoRow();
+  if (!c) return null;
+
+  c.movimientos = db.prepare(
+    "SELECT id, tipo, monto, concepto, username, datetime(created_at,'localtime') AS created_at FROM caja_movimientos WHERE corte_id = ? ORDER BY id"
+  ).all(c.id);
+  c.ingresos_manuales = round2(c.movimientos.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0));
+  c.retiros = round2(c.movimientos.filter((m) => m.tipo === 'retiro').reduce((s, m) => s + m.monto, 0));
+
+  // ventas pagadas de este turno, por método (solo ventas que siguen 'pagada')
+  const porMetodo = db.prepare(
+    `SELECT p.metodo, COALESCE(SUM(p.monto), 0) AS monto, COUNT(DISTINCT p.venta_id) AS ventas
+     FROM venta_pagos p JOIN ventas v ON v.id = p.venta_id
+     WHERE p.corte_id = ? AND v.estado = 'pagada' GROUP BY p.metodo`
+  ).all(c.id);
+  c.ventas_efectivo = round2((porMetodo.find((x) => x.metodo === 'efectivo') || {}).monto || 0);
+  c.ventas_transferencia = round2((porMetodo.find((x) => x.metodo === 'transferencia') || {}).monto || 0);
+  c.num_ventas = new Set(db.prepare("SELECT DISTINCT venta_id FROM venta_pagos WHERE corte_id = ?").all(c.id).map((r) => r.venta_id)).size;
+
+  c.efectivo_esperado_calc = round2(c.fondo_inicial + c.ventas_efectivo + c.ingresos_manuales - c.retiros);
+  if (c.estado === 'cerrado') {
+    c.diferencia = round2((c.efectivo_contado || 0) - (c.efectivo_esperado || 0));
+  }
+  return c;
+}
+
+function abrirCorte({ fondo_inicial }, actor = {}) {
+  const db = getDb();
+  if (corteAbiertoRow()) throw new Error('Ya hay un turno de caja abierto. Ciérralo antes de abrir otro.');
+  const f = num(fondo_inicial, 0);
+  if (f < 0) throw new Error('El fondo inicial no puede ser negativo.');
+  const info = db.prepare(
+    'INSERT INTO cortes_caja (fondo_inicial, abierto_por, abierto_username) VALUES (?, ?, ?)'
+  ).run(f, actor.id || null, actor.username || '');
+  return getCorte(info.lastInsertRowid);
+}
+
+function registrarMovimiento({ tipo, monto, concepto }, actor = {}) {
+  const db = getDb();
+  const c = corteAbiertoRow();
+  if (!c) throw new Error('No hay un turno de caja abierto.');
+  if (!['ingreso', 'retiro'].includes(tipo)) throw new Error('Tipo de movimiento no válido.');
+  const m = num(monto, 0);
+  if (m <= 0) throw new Error('El monto debe ser mayor a 0.');
+  const cpt = String(concepto || '').trim();
+  if (!cpt) throw new Error('Escribe el concepto del movimiento.');
+  db.prepare(
+    'INSERT INTO caja_movimientos (corte_id, tipo, monto, concepto, user_id, username) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(c.id, tipo, m, cpt, actor.id || null, actor.username || '');
+  return getCorte(c.id);
+}
+
+function cerrarCorte({ efectivo_contado, notas }, actor = {}) {
+  const db = getDb();
+  const c = getCorte();
+  if (!c) throw new Error('No hay un turno de caja abierto.');
+  const contado = num(efectivo_contado, NaN);
+  if (!Number.isFinite(contado) || contado < 0) throw new Error('Indica cuánto efectivo contaste.');
+  const esperado = c.efectivo_esperado_calc;
+  db.prepare(
+    `UPDATE cortes_caja SET estado = 'cerrado', cerrado_por = ?, cerrado_username = ?,
+       cerrado_at = datetime('now'), efectivo_esperado = ?, efectivo_contado = ?, diferencia = ?, notas = ?
+     WHERE id = ?`
+  ).run(actor.id || null, actor.username || '', esperado, contado, round2(contado - esperado), String(notas || ''), c.id);
+  return getCorte(c.id);
+}
+
+function listCortes({ limit = 30 } = {}) {
+  return getDb().prepare(
+    `SELECT c.*, datetime(c.abierto_at,'localtime') AS abierto_at_l, datetime(c.cerrado_at,'localtime') AS cerrado_at_l
+     FROM cortes_caja c ORDER BY c.id DESC LIMIT ?`
+  ).all(Math.min(Number(limit) || 30, 200)).map((c) => {
+    const full = getCorte(c.id);
+    return { ...c, abierto_at: c.abierto_at_l, cerrado_at: c.cerrado_at_l,
+      ventas_efectivo: full.ventas_efectivo, ventas_transferencia: full.ventas_transferencia,
+      retiros: full.retiros, ingresos_manuales: full.ingresos_manuales,
+      efectivo_esperado: c.efectivo_esperado != null ? c.efectivo_esperado : full.efectivo_esperado_calc };
+  });
+}
+
+module.exports = { corteAbiertoRow, getCorte, abrirCorte, registrarMovimiento, cerrarCorte, listCortes };
