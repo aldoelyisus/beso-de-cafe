@@ -5,6 +5,7 @@ const { verifyPassword } = require('../security/password');
 const session = require('../security/session');
 const permissionService = require('./permissionService');
 const logService = require('./logService');
+const { claveNombre } = require('./nombres');
 const registry = require('../permissions/registry');
 
 function buildSessionUser(row) {
@@ -24,7 +25,11 @@ function buildSessionUser(row) {
 function login(username, password) {
   const db = getDb();
   const uname = String(username || '').trim();
-  const row = db.prepare('SELECT * FROM users WHERE username = ?').get(uname);
+  // Quien se dio de alta como "Lupita" entra tecleando "lupita" o "LUPITA".
+  // Se compara con la misma regla que usa el alta (ver `nombres.js`), que sí
+  // pliega acentos —COLLATE NOCASE de SQLite solo entiende el alfabeto ASCII—.
+  const clave = claveNombre(uname);
+  const row = db.prepare('SELECT * FROM users').all().find((u) => claveNombre(u.username) === clave);
 
   if (!row || !verifyPassword(String(password || ''), row.password_hash)) {
     logService.writeLog({
@@ -58,6 +63,18 @@ function login(username, password) {
   return currentSession();
 }
 
+/**
+ * ¿El usuario de la sesión abierta sigue activo en la base?
+ * Se consulta en cada llamada del IPC: si a alguien lo desactivan mientras
+ * tiene la sesión abierta, deja de poder operar en ese momento.
+ */
+function sessionUserStillActive() {
+  const u = session.getCurrentUser();
+  if (!u) return false;
+  const row = getDb().prepare('SELECT is_active FROM users WHERE id = ?').get(u.id);
+  return !!(row && row.is_active);
+}
+
 function logout() {
   const u = session.getCurrentUser();
   if (u) {
@@ -71,15 +88,26 @@ function logout() {
 function currentSession() {
   const u = session.getCurrentUser();
   if (!u) return { authenticated: false };
+  // Si lo desactivaron mientras la app estaba abierta, la sesión ya no vale.
+  if (!sessionUserStillActive()) {
+    session.clear();
+    return { authenticated: false };
+  }
 
   const can = (key) => u.isSystem || u.permissions.has(key);
+  // Un grupo del menú se muestra si el usuario puede entrar a alguno de sus
+  // submódulos. Antes exigía además el permiso del propio grupo, así que quien
+  // tenía "insumos.view" pero no "inventory.view" no veía Inventario por ningún
+  // lado, sin manera de adivinar qué le faltaba.
   const menu = permissionService
     .menuTree()
     .map((m) => ({
       ...m,
       submodules: m.submodules.filter((s) => !s.requires || can(s.requires)),
     }))
-    .filter((m) => can(m.requires));
+    .filter((m) => (m.submodules.length ? true : !!m.requires && can(m.requires)))
+    // El grupo apunta a su primer destino visible, no a uno que el usuario no pueda abrir.
+    .map((m) => (m.submodules.length ? { ...m, route: m.submodules[0].route } : m));
 
   return {
     authenticated: true,
@@ -94,4 +122,4 @@ function currentSession() {
   };
 }
 
-module.exports = { login, logout, currentSession };
+module.exports = { login, logout, currentSession, sessionUserStillActive };

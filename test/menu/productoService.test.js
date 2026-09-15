@@ -3,14 +3,119 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { ACTOR, crearInsumo, crearProductoCategoria } = require('../helpers/setup');
+const { ACTOR, FOTO_PRUEBA, crearInsumo, crearProductoCategoria } = require('../helpers/setup');
 const svc = require('../../src/main/services/productoService');
 
 const near = (a, b, m) => assert.ok(Math.abs(a - b) < 1e-6, `${m || 'valor'}: ${a} ≈ ${b}`);
 
+// El alta exige foto; a estas pruebas la imagen les da igual, así que se inyecta
+// una de 1×1 px. Las pruebas de la foto en sí llaman a `svc.createProducto` directo.
+const crear = (data, actor) => svc.createProducto({ foto: FOTO_PRUEBA, ...data }, actor);
+
+// ================= foto del producto =================
+const FOTO_JPG = 'data:image/jpeg;base64,' + Buffer.from('imagen falsa').toString('base64');
+
+test('no se puede dar de alta un producto sin foto', () => {
+  for (const sinFoto of [{}, { foto: '' }, { foto: '   ' }, { foto: null }]) {
+    assert.throws(
+      () => svc.createProducto({ nombre: `P${Math.random()}`, precio: 40, ...sinFoto }, ACTOR),
+      /necesita una foto/i, JSON.stringify(sinFoto)
+    );
+  }
+});
+
+test('el mensaje de la foto explica para qué sirve', () => {
+  try {
+    svc.createProducto({ nombre: 'Latte', precio: 40 }, ACTOR);
+    assert.fail('debería haber lanzado');
+  } catch (e) {
+    assert.match(e.message, /punto de venta/i, 'dice por qué es obligatoria');
+  }
+});
+
+test('acepta JPG, PNG y WebP', () => {
+  for (const tipo of ['jpeg', 'png', 'webp']) {
+    const p = svc.createProducto(
+      { nombre: `Producto ${tipo}`, precio: 40, foto: `data:image/${tipo};base64,${Buffer.from('x').toString('base64')}` },
+      ACTOR
+    );
+    assert.match(p.foto, new RegExp(`^data:image/${tipo};base64,`));
+  }
+});
+
+test('rechaza lo que no sea una imagen', () => {
+  const malas = [
+    'no soy una imagen',
+    'https://ejemplo.com/foto.jpg',
+    'data:text/html;base64,PHNjcmlwdD4=',
+    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', // SVG puede traer scripts
+    '/home/usuario/foto.jpg',
+  ];
+  for (const mala of malas) {
+    assert.throws(() => svc.createProducto({ nombre: `P${Math.random()}`, precio: 40, foto: mala }, ACTOR),
+      /no es una imagen válida|no admitido/i, mala);
+  }
+});
+
+test('rechaza una foto demasiado pesada y dice cuánto pesa', () => {
+  const enorme = 'data:image/jpeg;base64,' + 'A'.repeat(900 * 1024);
+  try {
+    svc.createProducto({ nombre: 'Pesado', precio: 40, foto: enorme }, ACTOR);
+    assert.fail('debería haber lanzado');
+  } catch (e) {
+    assert.match(e.message, /pesa \d+ KB/i);
+    assert.match(e.message, /máximo son 600 KB/i);
+  }
+});
+
+test('la foto viaja al listado, al detalle y al catálogo de ventas', () => {
+  const p = svc.createProducto({ nombre: 'Frappé Oreo', precio: 80, foto: FOTO_JPG }, ACTOR);
+  assert.equal(svc.getProducto(p.id).foto, FOTO_JPG, 'detalle');
+  assert.equal(svc.listProductos().rows.find((x) => x.id === p.id).foto, FOTO_JPG, 'listado');
+  assert.equal(svc.listOptions().find((x) => x.id === p.id).foto, FOTO_JPG, 'catálogo del punto de venta');
+});
+
+test('al editar se puede cambiar la foto', () => {
+  const p = svc.createProducto({ nombre: 'Latte', precio: 40, foto: FOTO_JPG }, ACTOR);
+  const otra = 'data:image/png;base64,' + Buffer.from('otra').toString('base64');
+  assert.equal(svc.updateProducto(p.id, { foto: otra }).foto, otra);
+});
+
+test('editar sin mandar foto conserva la que tenía', () => {
+  const p = svc.createProducto({ nombre: 'Latte', precio: 40, foto: FOTO_JPG }, ACTOR);
+  assert.equal(svc.updateProducto(p.id, { nombre: 'Latte grande' }).foto, FOTO_JPG);
+});
+
+test('no se puede dejar a un producto sin foto al editarlo', () => {
+  const p = svc.createProducto({ nombre: 'Latte', precio: 40, foto: FOTO_JPG }, ACTOR);
+  assert.throws(() => svc.updateProducto(p.id, { foto: '' }), /necesita una foto/i);
+  assert.equal(svc.getProducto(p.id).foto, FOTO_JPG, 'se quedó con la suya');
+});
+
+// ================= nombre y categoría =================
+test('no se pueden crear dos productos con el mismo nombre', () => {
+  crear({ nombre: 'Frappé Oreo', precio: 80 }, ACTOR);
+  for (const variante of ['Frappé Oreo', 'frappé oreo', 'FRAPPE OREO', '  Frappé  Oreo  ']) {
+    assert.throws(() => crear({ nombre: variante, precio: 90 }, ACTOR), /Ya existe un producto/i, variante);
+  }
+});
+
+test('renombrar un producto al nombre de otro se rechaza', () => {
+  crear({ nombre: 'Latte', precio: 40 }, ACTOR);
+  const otro = crear({ nombre: 'Capuchino', precio: 45 }, ACTOR);
+  assert.throws(() => svc.updateProducto(otro.id, { nombre: 'LATTE' }), /Ya existe un producto/i);
+  assert.equal(svc.updateProducto(otro.id, { nombre: 'Capuchino' }).nombre, 'Capuchino');
+});
+
+test('una categoría inexistente da un mensaje claro, no el error de la base', () => {
+  assert.throws(() => crear({ nombre: 'X', precio: 10, categoria_id: 9999 }, ACTOR), /La categoría seleccionada no existe/i);
+  const p = crear({ nombre: 'Y', precio: 10 }, ACTOR);
+  assert.throws(() => svc.updateProducto(p.id, { categoria_id: 9999 }), /La categoría seleccionada no existe/i);
+});
+
 // ================= createProducto =================
 test('producto con un solo precio -> 1 presentación "Único"', () => {
-  const p = svc.createProducto({ nombre: 'Americano', precio: 40 }, ACTOR);
+  const p = crear({ nombre: 'Americano', precio: 40 }, ACTOR);
   assert.equal(p.presentaciones.length, 1);
   assert.equal(p.presentaciones[0].nombre, 'Único');
   assert.equal(p.presentaciones[0].precio_actual, 40);
@@ -20,7 +125,7 @@ test('producto con un solo precio -> 1 presentación "Único"', () => {
 
 test('producto con varias presentaciones (Chico / Grande) y precios distintos', () => {
   const cat = crearProductoCategoria('Frappés');
-  const p = svc.createProducto({
+  const p = crear({
     nombre: 'Frappé Oreo', categoria_id: cat.id,
     presentaciones: [{ nombre: 'Chico', precio: 65 }, { nombre: 'Grande', precio: 85 }],
   }, ACTOR);
@@ -33,17 +138,17 @@ test('producto con varias presentaciones (Chico / Grande) y precios distintos', 
 });
 
 test('rechaza nombre vacío', () => {
-  assert.throws(() => svc.createProducto({ nombre: '  ', precio: 10 }, ACTOR), /obligatorio/i);
+  assert.throws(() => crear({ nombre: '  ', precio: 10 }, ACTOR), /obligatorio/i);
 });
 
 test('rechaza una presentación sin precio válido', () => {
-  assert.throws(() => svc.createProducto({ nombre: 'X', presentaciones: [{ nombre: 'A', precio: -1 }] }, ACTOR), /precio válido/i);
+  assert.throws(() => crear({ nombre: 'X', presentaciones: [{ nombre: 'A', precio: -1 }] }, ACTOR), /precio válido/i);
 });
 
 test('al crear con modificadorIds, el producto los admite', () => {
   const modSvc = require('../../src/main/services/modificadorService');
   const m = modSvc.createModificador({ nombre: 'Extra shot', precio_extra: 20 });
-  const p = svc.createProducto({ nombre: 'Latte', precio: 55, modificadorIds: [m.id] }, ACTOR);
+  const p = crear({ nombre: 'Latte', precio: 55, modificadorIds: [m.id] }, ACTOR);
   assert.equal(p.modificadores.length, 1);
   assert.equal(p.modificadores[0].id, m.id);
 });
@@ -51,7 +156,7 @@ test('al crear con modificadorIds, el producto los admite', () => {
 // ================= updateProducto =================
 test('edita nombre, categoría y descripción', () => {
   const cat = crearProductoCategoria('Cafés');
-  const p = svc.createProducto({ nombre: 'Viejo', precio: 10 }, ACTOR);
+  const p = crear({ nombre: 'Viejo', precio: 10 }, ACTOR);
   const u = svc.updateProducto(p.id, { nombre: 'Nuevo', categoria_id: cat.id, descripcion: 'rico' });
   assert.equal(u.nombre, 'Nuevo');
   assert.equal(u.categoria_id, cat.id);
@@ -64,25 +169,25 @@ test('update de producto inexistente lanza error', () => {
 
 // ================= presentaciones =================
 test('agregar un tamaño nuevo con su precio', () => {
-  const p = svc.createProducto({ nombre: 'Frappé', precio: 65 }, ACTOR);
+  const p = crear({ nombre: 'Frappé', precio: 65 }, ACTOR);
   const u = svc.addPresentacion(p.id, { nombre: 'Grande', precio: 85 }, ACTOR);
   assert.equal(u.presentaciones.filter((x) => x.is_active).length, 2);
 });
 
 test('renombrar un tamaño', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 10 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 10 }, ACTOR);
   const pr = p.presentaciones[0];
   const u = svc.updatePresentacion(pr.id, { nombre: 'Mediano' });
   assert.equal(u.presentaciones[0].nombre, 'Mediano');
 });
 
 test('no se puede dar de baja el último tamaño activo', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 10 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 10 }, ACTOR);
   assert.throws(() => svc.deactivatePresentacion(p.presentaciones[0].id), /al menos un tamaño activo/i);
 });
 
 test('dar de baja un tamaño cuando hay otro activo, y reactivarlo', () => {
-  let p = svc.createProducto({ nombre: 'X', presentaciones: [{ nombre: 'A', precio: 10 }, { nombre: 'B', precio: 20 }] }, ACTOR);
+  let p = crear({ nombre: 'X', presentaciones: [{ nombre: 'A', precio: 10 }, { nombre: 'B', precio: 20 }] }, ACTOR);
   const a = p.presentaciones.find((x) => x.nombre === 'A');
   p = svc.deactivatePresentacion(a.id);
   assert.equal(p.presentaciones.filter((x) => x.is_active).length, 1);
@@ -91,7 +196,7 @@ test('dar de baja un tamaño cuando hay otro activo, y reactivarlo', () => {
 });
 
 test('agotado por producto y por tamaño', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 10 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 10 }, ACTOR);
   assert.equal(svc.setAgotado(p.id, true).agotado, 1);
   assert.equal(svc.setAgotado(p.id, false).agotado, 0);
   const pr = p.presentaciones[0];
@@ -100,7 +205,7 @@ test('agotado por producto y por tamaño', () => {
 
 // ================= precios =================
 test('cambiar precio deja historial y no toca las ventas viejas', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 65 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 65 }, ACTOR);
   const pr = p.presentaciones[0];
   const u = svc.cambiarPrecio(pr.id, 70, ACTOR);
   assert.equal(u.presentaciones[0].precio_actual, 70);
@@ -113,12 +218,12 @@ test('cambiar precio deja historial y no toca las ventas viejas', () => {
 });
 
 test('cambiar al mismo precio se rechaza', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 65 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 65 }, ACTOR);
   assert.throws(() => svc.cambiarPrecio(p.presentaciones[0].id, 65, ACTOR), /igual al actual/i);
 });
 
 test('cambiar precio con valor no válido se rechaza', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 65 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 65 }, ACTOR);
   assert.throws(() => svc.cambiarPrecio(p.presentaciones[0].id, -1, ACTOR), /precio válido/i);
 });
 
@@ -126,7 +231,7 @@ test('cambiar precio con valor no válido se rechaza', () => {
 test('receta con modo: "aquí" no consume el vaso, "para llevar" sí', () => {
   const base = crearInsumo({ nombre: 'Base', unidad_base: 'g', factor_compra: 1000, costo_compra: 120 }); // 0.12/g
   const vaso = crearInsumo({ nombre: 'Vaso', unidad_base: 'pieza', factor_compra: 1, costo_compra: 1.5 });
-  const p = svc.createProducto({ nombre: 'Frappé', precio: 70 }, ACTOR);
+  const p = crear({ nombre: 'Frappé', precio: 70 }, ACTOR);
   const pr = p.presentaciones[0];
   const u = svc.setReceta(pr.id, {
     items: [
@@ -143,14 +248,14 @@ test('receta con modo: "aquí" no consume el vaso, "para llevar" sí', () => {
 
 test('setReceta acepta un arreglo suelto como items', () => {
   const ins = crearInsumo({ nombre: 'Ins', costo_compra: 100 });
-  const p = svc.createProducto({ nombre: 'X', precio: 20 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 20 }, ACTOR);
   const u = svc.setReceta(p.presentaciones[0].id, [{ insumo_id: ins.id, cantidad_base: 10, modo: 'siempre' }], ACTOR);
   assert.equal(u.presentaciones[0].receta.length, 1);
 });
 
 test('setReceta rechaza cantidad 0, modo inválido, insumo inexistente y duplicados', () => {
   const ins = crearInsumo({ nombre: 'Ins' });
-  const p = svc.createProducto({ nombre: 'X', precio: 20 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 20 }, ACTOR);
   const pr = p.presentaciones[0].id;
   assert.throws(() => svc.setReceta(pr, { items: [{ insumo_id: ins.id, cantidad_base: 0, modo: 'siempre' }] }, ACTOR), /mayor a 0/i);
   assert.throws(() => svc.setReceta(pr, { items: [{ insumo_id: ins.id, cantidad_base: 1, modo: 'aveces' }] }, ACTOR), /modo/i);
@@ -164,7 +269,7 @@ test('setReceta rechaza cantidad 0, modo inválido, insumo inexistente y duplica
 test('setReceta reemplaza la receta anterior', () => {
   const a = crearInsumo({ nombre: 'A' });
   const b = crearInsumo({ nombre: 'B' });
-  const p = svc.createProducto({ nombre: 'X', precio: 20 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 20 }, ACTOR);
   const pr = p.presentaciones[0].id;
   svc.setReceta(pr, { items: [{ insumo_id: a.id, cantidad_base: 5, modo: 'siempre' }] }, ACTOR);
   const u = svc.setReceta(pr, { items: [{ insumo_id: b.id, cantidad_base: 3, modo: 'siempre' }] }, ACTOR);
@@ -176,7 +281,7 @@ test('setReceta reemplaza la receta anterior', () => {
 test('grupo de opción: usa la opción predeterminada para el costeo', () => {
   const entera = crearInsumo({ nombre: 'Leche entera', unidad_base: 'ml', factor_compra: 1000, costo_compra: 25 }); // 0.025
   const deslac = crearInsumo({ nombre: 'Leche deslactosada', unidad_base: 'ml', factor_compra: 1000, costo_compra: 30 }); // 0.03
-  const p = svc.createProducto({ nombre: 'Latte', precio: 55 }, ACTOR);
+  const p = crear({ nombre: 'Latte', precio: 55 }, ACTOR);
   const pr = p.presentaciones[0];
   const u = svc.setReceta(pr.id, {
     items: [],
@@ -193,7 +298,7 @@ test('grupo de opción: usa la opción predeterminada para el costeo', () => {
 test('cambiar la opción predeterminada cambia el costo', () => {
   const entera = crearInsumo({ nombre: 'Leche entera', unidad_base: 'ml', factor_compra: 1000, costo_compra: 25 });
   const deslac = crearInsumo({ nombre: 'Leche deslac', unidad_base: 'ml', factor_compra: 1000, costo_compra: 30 });
-  const p = svc.createProducto({ nombre: 'Latte', precio: 55 }, ACTOR);
+  const p = crear({ nombre: 'Latte', precio: 55 }, ACTOR);
   const pr = p.presentaciones[0].id;
   const g = (dflt) => ({ items: [], grupos: [{ nombre: 'Leche', cantidad_base: 200, modo: 'siempre', opciones: [entera.id, deslac.id], insumo_default_id: dflt }] });
   near(svc.setReceta(pr, g(entera.id), ACTOR).presentaciones[0].costo_aqui, 200 * 0.025, 'default entera');
@@ -202,7 +307,7 @@ test('cambiar la opción predeterminada cambia el costo', () => {
 
 test('grupo con menos de 2 opciones se rechaza', () => {
   const a = crearInsumo({ nombre: 'A', unidad_base: 'ml' });
-  const p = svc.createProducto({ nombre: 'X', precio: 20 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 20 }, ACTOR);
   assert.throws(() => svc.setReceta(p.presentaciones[0].id, {
     grupos: [{ nombre: 'Leche', cantidad_base: 100, modo: 'siempre', opciones: [a.id] }],
   }, ACTOR), /al menos 2 opciones/i);
@@ -211,7 +316,7 @@ test('grupo con menos de 2 opciones se rechaza', () => {
 test('grupo con opciones de distinta unidad se rechaza', () => {
   const ml = crearInsumo({ nombre: 'Leche', unidad_base: 'ml' });
   const g = crearInsumo({ nombre: 'Cocoa', unidad_base: 'g' });
-  const p = svc.createProducto({ nombre: 'X', precio: 20 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 20 }, ACTOR);
   assert.throws(() => svc.setReceta(p.presentaciones[0].id, {
     grupos: [{ nombre: 'Mezcla', cantidad_base: 100, modo: 'siempre', opciones: [ml.id, g.id] }],
   }, ACTOR), /misma unidad/i);
@@ -221,21 +326,21 @@ test('grupo con opciones de distinta unidad se rechaza', () => {
 test('setModificadores asigna y quita', () => {
   const modSvc = require('../../src/main/services/modificadorService');
   const m = modSvc.createModificador({ nombre: 'Extra shot', precio_extra: 20 });
-  const p = svc.createProducto({ nombre: 'X', precio: 20 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 20 }, ACTOR);
   assert.equal(svc.setModificadores(p.id, [m.id]).modificadores.length, 1);
   assert.equal(svc.setModificadores(p.id, []).modificadores.length, 0);
 });
 
 // ================= baja lógica =================
 test('deactivate / activate producto', () => {
-  const p = svc.createProducto({ nombre: 'X', precio: 10 }, ACTOR);
+  const p = crear({ nombre: 'X', precio: 10 }, ACTOR);
   assert.equal(svc.deactivateProducto(p.id).is_active, 0);
   assert.equal(svc.activateProducto(p.id).is_active, 1);
 });
 
 // ================= listProductos =================
 test('pagina de 15, con rango de precio y nº de tamaños', () => {
-  for (let i = 0; i < 17; i++) svc.createProducto({ nombre: `Prod ${i}`, precio: 10 + i }, ACTOR);
+  for (let i = 0; i < 17; i++) crear({ nombre: `Prod ${i}`, precio: 10 + i }, ACTOR);
   const r = svc.listProductos();
   assert.equal(r.total, 17);
   assert.equal(r.rows.length, 15);
@@ -245,8 +350,8 @@ test('pagina de 15, con rango de precio y nº de tamaños', () => {
 
 test('señal receta_completa: true solo si todos los tamaños activos tienen receta y precio', () => {
   const ins = crearInsumo({ nombre: 'Ins' });
-  const sin = svc.createProducto({ nombre: 'Sin receta', precio: 20 }, ACTOR);
-  const con = svc.createProducto({ nombre: 'Con receta', precio: 20 }, ACTOR);
+  const sin = crear({ nombre: 'Sin receta', precio: 20 }, ACTOR);
+  const con = crear({ nombre: 'Con receta', precio: 20 }, ACTOR);
   svc.setReceta(con.presentaciones[0].id, { items: [{ insumo_id: ins.id, cantidad_base: 1, modo: 'siempre' }] }, ACTOR);
   const rows = svc.listProductos({ pageSize: 100 }).rows;
   assert.equal(rows.find((p) => p.id === sin.id).receta_completa, false);
@@ -255,15 +360,15 @@ test('señal receta_completa: true solo si todos los tamaños activos tienen rec
 
 test('filtra por categoría y por nombre', () => {
   const cat = crearProductoCategoria('Postres');
-  svc.createProducto({ nombre: 'Crepa', categoria_id: cat.id, precio: 70 }, ACTOR);
-  svc.createProducto({ nombre: 'Café', precio: 40 }, ACTOR);
+  crear({ nombre: 'Crepa', categoria_id: cat.id, precio: 70 }, ACTOR);
+  crear({ nombre: 'Café', precio: 40 }, ACTOR);
   assert.equal(svc.listProductos({ categoriaId: cat.id }).total, 1);
   assert.equal(svc.listProductos({ search: 'caf' }).total, 1);
 });
 
 test('filtra "solo agotados"', () => {
-  const a = svc.createProducto({ nombre: 'Agotado', precio: 10 }, ACTOR);
-  svc.createProducto({ nombre: 'Normal', precio: 10 }, ACTOR);
+  const a = crear({ nombre: 'Agotado', precio: 10 }, ACTOR);
+  crear({ nombre: 'Normal', precio: 10 }, ACTOR);
   svc.setAgotado(a.id, true);
   const r = svc.listProductos({ soloAgotados: true });
   assert.equal(r.total, 1);
@@ -271,16 +376,16 @@ test('filtra "solo agotados"', () => {
 });
 
 test('includeInactive controla los dados de baja', () => {
-  const b = svc.createProducto({ nombre: 'Baja', precio: 10 }, ACTOR);
-  svc.createProducto({ nombre: 'Activo', precio: 10 }, ACTOR);
+  const b = crear({ nombre: 'Baja', precio: 10 }, ACTOR);
+  crear({ nombre: 'Activo', precio: 10 }, ACTOR);
   svc.deactivateProducto(b.id);
   assert.equal(svc.listProductos({ includeInactive: false }).total, 1);
   assert.equal(svc.listProductos({ includeInactive: true }).total, 2);
 });
 
 test('orden por nombre y por precio', () => {
-  svc.createProducto({ nombre: 'Zeta', precio: 100 }, ACTOR);
-  svc.createProducto({ nombre: 'Alfa', precio: 10 }, ACTOR);
+  crear({ nombre: 'Zeta', precio: 100 }, ACTOR);
+  crear({ nombre: 'Alfa', precio: 10 }, ACTOR);
   assert.equal(svc.listProductos({ sort: 'nombre' }).rows[0].nombre, 'Alfa');
   assert.equal(svc.listProductos({ sort: 'nombre_desc' }).rows[0].nombre, 'Zeta');
   assert.equal(svc.listProductos({ sort: 'precio_asc' }).rows[0].nombre, 'Alfa');
@@ -290,8 +395,8 @@ test('orden por nombre y por precio', () => {
 // ================= listOptions (POS / promos) =================
 test('listOptions trae productos activos con sus tamaños y precio', () => {
   const cat = crearProductoCategoria('Frappés');
-  svc.createProducto({ nombre: 'Frappé', categoria_id: cat.id, presentaciones: [{ nombre: 'Chico', precio: 65 }, { nombre: 'Grande', precio: 85 }] }, ACTOR);
-  const baja = svc.createProducto({ nombre: 'Baja', precio: 10 }, ACTOR);
+  crear({ nombre: 'Frappé', categoria_id: cat.id, presentaciones: [{ nombre: 'Chico', precio: 65 }, { nombre: 'Grande', precio: 85 }] }, ACTOR);
+  const baja = crear({ nombre: 'Baja', precio: 10 }, ACTOR);
   svc.deactivateProducto(baja.id);
   const opts = svc.listOptions();
   assert.equal(opts.length, 1);

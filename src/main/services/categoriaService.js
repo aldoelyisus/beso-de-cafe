@@ -3,6 +3,7 @@
 const { getDb } = require('../db/connection');
 const { isUnit } = require('../inventory/units');
 const { paginate } = require('./pagination');
+const { buscarChoque } = require('./nombres');
 
 const CATEGORIA_SORTS = {
   nombre: 'c.is_active DESC, c.nombre',
@@ -54,11 +55,24 @@ function getCategoria(id) {
   return getDb().prepare('SELECT * FROM insumo_categorias WHERE id = ?').get(id) || null;
 }
 
+/**
+ * El nombre es único "como lo lee una persona": "Café", "café", "CAFÉ" y "Cafe"
+ * son la misma categoría. Si no, los insumos se repartirían entre dos categorías
+ * que en pantalla se ven idénticas. Ver `nombres.js` (migración 014 es la red).
+ */
+function assertNombreLibre(db, nombre, exceptId = null) {
+  const filas = db.prepare('SELECT id, nombre FROM insumo_categorias').all();
+  if (buscarChoque(filas, nombre, exceptId)) {
+    throw new Error('Ya existe una categoría con ese nombre.');
+  }
+}
+
 function createCategoria({ nombre, unidad_sugerida = 'pieza' }) {
   const db = getDb();
   nombre = String(nombre || '').trim();
   if (!nombre) throw new Error('El nombre de la categoría es obligatorio.');
   if (!isUnit(unidad_sugerida)) throw new Error('Unidad sugerida no válida.');
+  assertNombreLibre(db, nombre);
   try {
     const info = db
       .prepare('INSERT INTO insumo_categorias (nombre, unidad_sugerida) VALUES (?, ?)')
@@ -77,6 +91,7 @@ function updateCategoria(id, { nombre, unidad_sugerida }) {
   if (unidad_sugerida !== undefined && !isUnit(unidad_sugerida)) {
     throw new Error('Unidad sugerida no válida.');
   }
+  if (nombre != null && String(nombre).trim()) assertNombreLibre(db, String(nombre).trim(), Number(id));
   try {
     db.prepare(
       `UPDATE insumo_categorias

@@ -1,12 +1,23 @@
 import { h, esc, toast, openModal, confirmDialog, field } from '../lib/ui.js';
-import { can } from '../lib/store.js';
+import { can, currentUser } from '../lib/store.js';
 import { PermissionPicker } from '../components/permissionPicker.js';
 
 export async function UsersView(root) {
   root.innerHTML = '';
+
+  // Red de seguridad: si alguien llega aquí sin el permiso (por la URL), se le
+  // explica en vez de reventar la pantalla con un error técnico.
+  if (!can('users.view')) {
+    root.append(
+      h('div', { class: 'page-head' }, h('div', {}, h('h2', {}, 'Usuarios y personal'))),
+      h('div', { class: 'empty' }, 'No tienes permiso para ver los usuarios.')
+    );
+    return;
+  }
+
   const [users, roles] = await Promise.all([
     window.api.users.list({ includeInactive: true }),
-    can('roles.list') ? window.api.roles.list() : Promise.resolve([]),
+    can('roles.view') ? window.api.roles.list() : Promise.resolve([]),
   ]);
 
   const head = h('div', { class: 'page-head' },
@@ -19,16 +30,23 @@ export async function UsersView(root) {
       : null
   );
 
+  const yo = currentUser();
   const rows = users.map((u) => {
+    const esYoMismo = yo && Number(yo.id) === Number(u.id);
     const actions = h('div', { class: 'row-actions' });
     if (can('users.edit')) {
       actions.append(
         h('button', { class: 'btn small secondary', onclick: () => openUserModal(root, u.id, roles) }, 'Editar'),
-        h('button', { class: 'btn small secondary', onclick: () => openPermissionsModal(root, u.id) }, 'Permisos'),
         h('button', { class: 'btn small ghost', onclick: () => openSecurityModal(root, u) }, 'Acceso')
       );
     }
-    if (can('users.delete')) {
+    // Repartir permisos es su propio permiso, y nadie se los cambia a sí mismo.
+    if (can('users.permissions') && !esYoMismo) {
+      actions.append(
+        h('button', { class: 'btn small secondary', onclick: () => openPermissionsModal(root, u.id) }, 'Permisos')
+      );
+    }
+    if (can('users.delete') && !esYoMismo) {
       actions.append(
         u.is_active
           ? h('button', {

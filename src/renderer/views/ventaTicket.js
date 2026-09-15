@@ -1,5 +1,6 @@
-import { h, esc, toast, openModal, confirmDialog, field } from '../lib/ui.js';
+import { h, esc, toast, openModal, confirmDialog, field, agregar } from '../lib/ui.js';
 import { can } from '../lib/store.js';
+import { SearchBox, ChipRow } from '../components/filters.js';
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -12,8 +13,14 @@ export async function VentaTicketView(root, idParam) {
     window.api.ventas.catalogoProductos(),
     window.api.ventas.meta(),
   ]);
+  let mesas = can('ventas.crear') ? await window.api.ventas.mesas() : [];
   let venta = await window.api.ventas.get(id);
   if (!venta) { root.appendChild(h('div', { class: 'empty' }, 'La cuenta no existe.')); return; }
+
+  // Con 40 productos, desplazarse buscando la foto correcta es lento: el
+  // catálogo lleva buscador y chips de categoría. El filtro se declara aquí
+  // porque `render()` corre enseguida y `catalogoEl` ya lo necesita.
+  const filtro = { texto: '', categoria: '' };
 
   render();
 
@@ -31,7 +38,19 @@ export async function VentaTicketView(root, idParam) {
         h('div', { class: 'muted' },
           (venta.tipo === 'mesa' ? esc(venta.mesa_nombre || 'Mesa') : 'Para llevar') + ' · ',
           estadoBadge(venta.estado))
-      )
+      ),
+      // La mesa se retira a media cuenta: lo servido se pasa a vasos desechables.
+      venta.estado === 'abierta' && can('ventas.crear')
+        ? h('div', { class: 'row-actions' },
+            venta.tipo === 'mesa'
+              ? h('button', { class: 'btn secondary', onclick: () => pasarALlevar() }, '🥤 Pasar a llevar')
+              : null,
+            mesasDisponibles().length
+              ? h('button', { class: 'btn secondary', onclick: () => moverAMesa() },
+                  venta.tipo === 'mesa' ? 'Cambiar de mesa' : 'Sentar en una mesa')
+              : null
+          )
+        : null
     ));
 
     if (venta.estado === 'abierta') {
@@ -39,6 +58,65 @@ export async function VentaTicketView(root, idParam) {
     } else {
       root.appendChild(ticketEl(true));
     }
+  }
+
+  /** Mesas activas donde cabe esta cuenta (las ocupadas por OTRA cuenta no). */
+  function mesasDisponibles() {
+    return (mesas || []).filter((m) => !m.venta_abierta_id || m.venta_abierta_id === venta.id);
+  }
+
+  /** Cuántos productos activos cambiarían de modo (y por tanto de vaso). */
+  function itemsPorConvertir(paraLlevar) {
+    return venta.items.filter((i) => i.estado === 'activo' && !!i.para_llevar !== paraLlevar).length;
+  }
+
+  async function pasarALlevar() {
+    const n = itemsPorConvertir(true);
+    const aviso = n
+      ? `Se van a pasar ${n} producto(s) a vaso desechable y el inventario se ajusta solo.`
+      : 'La cuenta todavía no tiene productos servidos aquí.';
+    if (!(await confirmDialog({
+      title: 'Pasar la cuenta a llevar',
+      message: `${aviso} La mesa queda libre. ¿Continuar?`,
+      confirmLabel: 'Pasar a llevar', kind: 'primary',
+    }))) return;
+    try {
+      const v = await window.api.ventas.cambiarTipo(venta.id, 'llevar', null);
+      toast(v.items_con_movimiento
+        ? `Cuenta para llevar. Se descontaron los vasos de ${v.items_con_movimiento} producto(s).`
+        : 'Cuenta para llevar.', 'ok');
+      mesas = await recargarMesas();
+      refresh();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  async function moverAMesa() {
+    const opciones = mesasDisponibles().filter((m) => m.id !== venta.mesa_id);
+    if (!opciones.length) return toast('No hay mesas libres.', 'err');
+    const sel = h('select', {}, ...opciones.map((m) => h('option', { value: String(m.id) }, m.nombre)));
+    const n = itemsPorConvertir(false);
+    openModal({
+      title: venta.tipo === 'mesa' ? 'Cambiar de mesa' : 'Sentar la cuenta en una mesa',
+      body: h('div', {},
+        field('Mesa', sel),
+        n ? h('div', { class: 'hint' },
+          `${n} producto(s) se sirvieron para llevar: al sentarlos aquí, sus vasos desechables regresan al inventario.`) : null
+      ),
+      buttons: [
+        { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
+        { label: 'Mover cuenta', kind: 'primary', onClick: async (close) => {
+          const v = await window.api.ventas.cambiarTipo(venta.id, 'mesa', Number(sel.value));
+          toast(`Cuenta en ${v.mesa_nombre}.`, 'ok');
+          close();
+          mesas = await recargarMesas();
+          refresh();
+        } },
+      ],
+    });
+  }
+
+  async function recargarMesas() {
+    return can('ventas.crear') ? window.api.ventas.mesas() : [];
   }
 
   function estadoBadge(e) {
@@ -51,30 +129,79 @@ export async function VentaTicketView(root, idParam) {
   function catalogoEl() {
     const wrap = h('div', {});
     if (!can('ventas.crear')) { wrap.appendChild(h('div', { class: 'hint' }, 'No tienes permiso para agregar productos.')); return wrap; }
-    const porCat = new Map();
-    for (const p of catalogo) {
-      const k = p.categoria_nombre || 'Otros';
-      if (!porCat.has(k)) porCat.set(k, []);
-      porCat.get(k).push(p);
+    if (!catalogo.length) {
+      wrap.appendChild(h('div', { class: 'empty' }, 'No hay productos. Créalos en Menú → Productos.'));
+      return wrap;
     }
-    for (const [cat, prods] of porCat) {
-      wrap.appendChild(h('div', { class: 'cat-group' },
-        h('h4', {}, esc(cat)),
-        h('div', { class: 'cat-items' },
-          ...prods.map((p) => {
-            const min = Math.min(...p.presentaciones.map((pr) => pr.precio_actual ?? Infinity));
-            return h('button', {
-              class: 'prod-btn', disabled: p.agotado ? 'disabled' : null,
-              onclick: () => openAgregar(p.id),
-            },
-              h('span', { class: 'n' }, esc(p.nombre)),
-              h('span', { class: 'p' }, p.agotado ? 'Agotado' : (Number.isFinite(min) ? money(min) : 'sin precio'))
-            );
-          })
-        )
-      ));
+
+    const categorias = [...new Set(catalogo.map((p) => p.categoria_nombre || 'Otros'))];
+    const lista = h('div', {});
+
+    const barra = h('div', { class: 'cat-barra' },
+      SearchBox('Buscar producto…', (v) => { filtro.texto = v; pintarLista(); }, { delay: 120, value: filtro.texto }),
+      ChipRow(
+        [{ value: '', label: `Todo (${catalogo.length})` },
+         ...categorias.map((c) => ({ value: c, label: `${c} (${catalogo.filter((p) => (p.categoria_nombre || 'Otros') === c).length})` }))],
+        filtro.categoria,
+        (v) => { filtro.categoria = v; pintarLista(); }
+      )
+    );
+
+    function coincide(p) {
+      if (filtro.categoria && (p.categoria_nombre || 'Otros') !== filtro.categoria) return false;
+      if (!filtro.texto) return true;
+      const t = filtro.texto.toLocaleLowerCase('es');
+      return `${p.nombre} ${p.categoria_nombre || ''}`.toLocaleLowerCase('es').includes(t);
     }
-    if (!catalogo.length) wrap.appendChild(h('div', { class: 'empty' }, 'No hay productos. Créalos en Menú → Productos.'));
+
+    function tarjeta(p) {
+      const min = Math.min(...p.presentaciones.map((pr) => pr.precio_actual ?? Infinity));
+      const varios = p.presentaciones.length > 1;
+      return h('button', {
+        class: 'prod-btn', disabled: p.agotado ? 'disabled' : null,
+        title: p.nombre,
+        onclick: () => openAgregar(p.id),
+      },
+        // La foto manda: el cajero elige de un vistazo, sin leer.
+        p.foto
+          ? h('img', { class: 'prod-foto', src: p.foto, alt: '', loading: 'lazy' })
+          : h('div', { class: 'prod-foto vacia' }, '📷'),
+        p.agotado ? h('span', { class: 'prod-agotado' }, 'Agotado') : null,
+        h('span', { class: 'n' }, esc(p.nombre)),
+        h('span', { class: 'p' },
+          p.agotado ? 'Agotado' : (Number.isFinite(min) ? (varios ? 'desde ' : '') + money(min) : 'sin precio'))
+      );
+    }
+
+    function pintarLista() {
+      lista.innerHTML = '';
+      const visibles = catalogo.filter(coincide);
+      if (!visibles.length) {
+        lista.appendChild(h('div', { class: 'empty' },
+          `Ningún producto coincide con "${filtro.texto}"${filtro.categoria ? ` en ${filtro.categoria}` : ''}.`));
+        return;
+      }
+      // Buscando, la agrupación por categoría estorba: se muestra una sola rejilla.
+      if (filtro.texto) {
+        lista.appendChild(h('div', { class: 'cat-items' }, ...visibles.map(tarjeta)));
+        return;
+      }
+      const porCat = new Map();
+      for (const p of visibles) {
+        const k = p.categoria_nombre || 'Otros';
+        if (!porCat.has(k)) porCat.set(k, []);
+        porCat.get(k).push(p);
+      }
+      for (const [cat, prods] of porCat) {
+        lista.appendChild(h('div', { class: 'cat-group' },
+          h('h4', {}, esc(cat)),
+          h('div', { class: 'cat-items' }, ...prods.map(tarjeta))
+        ));
+      }
+    }
+
+    pintarLista();
+    wrap.append(barra, lista);
     return wrap;
   }
 
@@ -96,7 +223,10 @@ export async function VentaTicketView(root, idParam) {
     const totalLine = h('div', { class: 'row total', style: 'display:flex;justify-content:space-between;margin-top:10px;font-weight:700' });
 
     function pres() { return p.presentaciones.find((x) => x.id === presId); }
-    const grupoSelects = {}; // grupoId -> select
+    // Lo elegido en cada grupo, por NOMBRE de grupo ("Leche", "Azúcar"). Por
+    // nombre y no por id para que al cambiar de tamaño no se pierda la elección:
+    // cada tamaño tiene sus propios grupos aunque se llamen igual.
+    const grupoElegido = {};
 
     function renderDyn() {
       dyn.innerHTML = '';
@@ -112,15 +242,23 @@ export async function VentaTicketView(root, idParam) {
           return h('label', {}, r, h('span', {}, `${x.nombre} · ${money(x.precio_actual)}`));
         })));
       }
-      // grupos de opción
+      // Grupos de opción (tipo de leche, de azúcar…): mismos botones que los
+      // tamaños. Un <select> obliga a dos toques y esconde las opciones.
       for (const g of pr.grupos || []) {
-        const sel = h('select', {}, ...g.opciones.map((o) => {
-          const opt = h('option', { value: String(o.insumo_id) }, o.insumo_nombre);
-          if (o.insumo_id === g.insumo_default_id) opt.selected = true;
-          return opt;
-        }));
-        grupoSelects[g.id] = sel;
-        dyn.appendChild(field(g.nombre, sel));
+        const disponibles = g.opciones || [];
+        // Se respeta lo que ya había elegido; si no, la predeterminada.
+        const previo = grupoElegido[g.nombre];
+        const valido = disponibles.some((o) => o.insumo_id === previo);
+        if (!valido) {
+          grupoElegido[g.nombre] = g.insumo_default_id || (disponibles[0] && disponibles[0].insumo_id) || null;
+        }
+        dyn.appendChild(h('div', { class: 'section-title' }, esc(g.nombre)));
+        dyn.appendChild(h('div', { class: 'metodo-pick opciones' }, ...disponibles.map((o) => {
+          const r = h('input', { type: 'radio', name: `g${g.id}`, value: String(o.insumo_id) });
+          r.checked = o.insumo_id === grupoElegido[g.nombre];
+          r.addEventListener('change', () => { grupoElegido[g.nombre] = o.insumo_id; });
+          return h('label', {}, r, h('span', {}, esc(o.insumo_nombre)));
+        })));
       }
       // modificadores
       for (const { m, cb } of modChecks) {
@@ -149,9 +287,12 @@ export async function VentaTicketView(root, idParam) {
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
         { label: 'Agregar a la cuenta', kind: 'primary', onClick: async (close) => {
+          // El backend espera { grupoId: insumoId } del tamaño que se va a agregar.
           const opciones = {};
-          for (const [gid, sel] of Object.entries(grupoSelects)) opciones[gid] = Number(sel.value);
-          await window.api.ventas.agregarItem(id, {
+          for (const g of pres().grupos || []) {
+            if (grupoElegido[g.nombre] != null) opciones[g.id] = Number(grupoElegido[g.nombre]);
+          }
+          const res = await window.api.ventas.agregarItem(id, {
             presentacionId: presId,
             paraLlevar: paraLlevar.checked,
             modificadorIds: modChecks.filter((x) => x.cb.checked).map((x) => Number(x.m.id)),
@@ -159,6 +300,12 @@ export async function VentaTicketView(root, idParam) {
             cantidad: Math.max(1, Number(cantidad.value) || 1),
           });
           toast('Agregado', 'ok');
+          // La venta nunca se frena por el inventario, pero si algo quedó en
+          // negativo hay que decirlo AHORA: significa que salió mercancía que
+          // nunca se registró como compra.
+          for (const f of res.faltantes || []) {
+            toast(`⚠ ${f.nombre} quedó en ${f.stock} ${f.unidad}. Falta registrar una compra o hacer conteo.`, 'err');
+          }
           close();
           refresh();
         } },
@@ -193,7 +340,7 @@ export async function VentaTicketView(root, idParam) {
 
     const totals = h('div', { class: 'ticket-totals' });
     if (venta.descuento > 0 || venta.promocion_id) {
-      totals.append(
+      agregar(totals,
         h('div', { class: 'row' }, h('span', {}, 'Subtotal'), h('span', {}, money(venta.total))),
         h('div', { class: 'row', style: 'color:var(--ok)' },
           h('span', {}, 'Promo: ' + esc(venta.promocion_nombre || ''),
@@ -204,7 +351,7 @@ export async function VentaTicketView(root, idParam) {
           ? h('div', { class: 'row', style: 'color:var(--danger);font-size:12px' }, h('span', {}, '⚠ la promoción ya no aplica a esta cuenta'), h('span', {}, '')) : null
       );
     }
-    totals.append(
+    agregar(totals,
       h('div', { class: 'row total' }, h('span', {}, 'Total'), h('span', {}, money(venta.total_final))),
       venta.pagado > 0 ? h('div', { class: 'row' }, h('span', {}, 'Pagado'), h('span', {}, money(venta.pagado))) : null,
       venta.saldo > 0 && venta.pagado > 0 ? h('div', { class: 'row saldo' }, h('span', {}, 'Saldo'), h('span', {}, money(venta.saldo))) : null

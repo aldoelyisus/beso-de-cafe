@@ -48,6 +48,7 @@ const ACTION_LABELS = {
   'ventas.abrir': 'Cuenta abierta',
   'ventas.item.add': 'Producto agregado a una cuenta',
   'ventas.item.cancel': 'Producto cancelado de una cuenta',
+  'ventas.cambiarTipo': 'Cuenta movida de mesa / pasada a llevar',
   'ventas.cobro': 'Cobro registrado',
   'ventas.cancelar': 'Venta cancelada',
   'ventas.promo': 'Promoción aplicada / quitada en una cuenta',

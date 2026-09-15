@@ -12,8 +12,9 @@
  * partir de esto.
  *
  * Convención de clave: "<modulo>.<accion>"
- *   - view    -> ver el módulo en el menú desplegable
- *   - list    -> ver el listado / tabla
+ *   - view    -> entrar al módulo y ver su listado. Van juntos a propósito:
+ *                un usuario que ve el módulo en el menú pero no su contenido
+ *                solo se topa con una pantalla vacía y no entiende por qué.
  *   - create  -> crear registros
  *   - edit    -> editar registros
  *   - delete  -> eliminar registros (baja lógica)
@@ -28,11 +29,13 @@ const MODULES = [
     order: 40,
     section: 'administracion',
     permissions: [
-      { action: 'view', label: 'Ver módulo en el menú' },
-      { action: 'list', label: 'Ver listado de usuarios' },
+      { action: 'view', label: 'Ver el módulo y el listado de usuarios' },
       { action: 'create', label: 'Crear usuarios' },
       { action: 'edit', label: 'Editar usuarios' },
       { action: 'delete', label: 'Desactivar usuarios' },
+      // Aparte de "edit" a propósito: quien puede repartir permisos puede
+      // convertir a cualquiera (o a sí mismo) en administrador total.
+      { action: 'permissions', label: 'Asignar permisos individuales a un usuario' },
     ],
     submodules: [
       { key: 'users-list', label: 'Usuarios', route: '#/users', requires: 'users.view' },
@@ -47,8 +50,7 @@ const MODULES = [
     order: 20,
     hiddenFromMenu: true, // se accede desde el submódulo de "Usuarios y personal"
     permissions: [
-      { action: 'view', label: 'Ver módulo de roles' },
-      { action: 'list', label: 'Ver listado de roles' },
+      { action: 'view', label: 'Ver el módulo y el listado de roles' },
       { action: 'create', label: 'Crear roles' },
       { action: 'edit', label: 'Editar roles y sus permisos' },
       { action: 'delete', label: 'Eliminar roles' },
@@ -62,9 +64,9 @@ const MODULES = [
     route: '#/insumos',
     order: 25,
     section: 'catalogo',
-    permissions: [
-      { action: 'view', label: 'Ver módulo de inventario en el menú' },
-    ],
+    // Grupo contenedor: no tiene permiso propio. Aparece en el menú si el
+    // usuario puede ver alguno de sus submódulos (ver authService.currentSession).
+    permissions: [],
     submodules: [
       { key: 'insumos-list', label: 'Insumos', route: '#/insumos', requires: 'insumos.view' },
       { key: 'insumo-categorias-list', label: 'Categorías de insumos', route: '#/insumo-categorias', requires: 'insumo_categorias.view' },
@@ -78,8 +80,7 @@ const MODULES = [
     order: 26,
     hiddenFromMenu: true, // se accede desde "Inventario"
     permissions: [
-      { action: 'view', label: 'Ver insumos' },
-      { action: 'list', label: 'Ver listado de insumos' },
+      { action: 'view', label: 'Ver el módulo y el listado de insumos' },
       { action: 'create', label: 'Crear insumos' },
       { action: 'edit', label: 'Editar insumos' },
       { action: 'delete', label: 'Dar de baja insumos' },
@@ -96,8 +97,7 @@ const MODULES = [
     order: 27,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver categorías de insumos' },
-      { action: 'list', label: 'Ver listado de categorías' },
+      { action: 'view', label: 'Ver el módulo y el listado de categorías de insumos' },
       { action: 'create', label: 'Crear categorías de insumos' },
       { action: 'edit', label: 'Editar categorías de insumos' },
       { action: 'delete', label: 'Dar de baja / reactivar categorías de insumos' },
@@ -111,9 +111,8 @@ const MODULES = [
     route: '#/productos',
     order: 20,
     section: 'catalogo',
-    permissions: [
-      { action: 'view', label: 'Ver módulo de menú y recetas' },
-    ],
+    // Grupo contenedor: sin permiso propio (ver "Inventario").
+    permissions: [],
     submodules: [
       { key: 'productos-list', label: 'Productos', route: '#/productos', requires: 'productos.view' },
       { key: 'producto-categorias-list', label: 'Categorías de productos', route: '#/producto-categorias', requires: 'producto_categorias.view' },
@@ -129,8 +128,7 @@ const MODULES = [
     order: 16,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver productos' },
-      { action: 'list', label: 'Ver listado de productos' },
+      { action: 'view', label: 'Ver el módulo y el listado de productos' },
       { action: 'create', label: 'Crear productos' },
       { action: 'edit', label: 'Editar productos (datos, tamaños, agotado)' },
       { action: 'delete', label: 'Dar de baja productos' },
@@ -147,8 +145,7 @@ const MODULES = [
     order: 17,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver categorías de productos' },
-      { action: 'list', label: 'Ver listado de categorías de productos' },
+      { action: 'view', label: 'Ver el módulo y el listado de categorías de productos' },
       { action: 'create', label: 'Crear categorías de productos' },
       { action: 'edit', label: 'Editar categorías de productos' },
       { action: 'delete', label: 'Dar de baja / reactivar categorías de productos' },
@@ -163,8 +160,7 @@ const MODULES = [
     order: 18,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver modificadores' },
-      { action: 'list', label: 'Ver listado de modificadores' },
+      { action: 'view', label: 'Ver el módulo y el listado de modificadores' },
       { action: 'create', label: 'Crear modificadores' },
       { action: 'edit', label: 'Editar modificadores y su receta' },
       { action: 'delete', label: 'Dar de baja / reactivar modificadores' },
@@ -180,7 +176,7 @@ const MODULES = [
     section: 'operacion',
     permissions: [
       { action: 'view', label: 'Abrir el punto de venta' },
-      { action: 'list', label: 'Ver el historial de ventas' },
+      { action: 'list', label: 'Ver el historial de ventas (pantalla aparte)' },
       { action: 'crear', label: 'Abrir cuentas y agregar productos' },
       { action: 'cobrar', label: 'Cobrar cuentas (completo o dividido)' },
       { action: 'cancelar', label: 'Cancelar productos y ventas' },
@@ -214,8 +210,7 @@ const MODULES = [
     order: 7,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver promociones' },
-      { action: 'list', label: 'Ver listado de promociones' },
+      { action: 'view', label: 'Ver el módulo y el listado de promociones' },
       { action: 'create', label: 'Crear promociones' },
       { action: 'edit', label: 'Editar promociones' },
       { action: 'delete', label: 'Activar / desactivar promociones' },
@@ -231,8 +226,7 @@ const MODULES = [
     order: 6,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver la configuración de mesas' },
-      { action: 'list', label: 'Ver listado de mesas' },
+      { action: 'view', label: 'Ver y configurar las mesas' },
       { action: 'create', label: 'Agregar mesas' },
       { action: 'edit', label: 'Editar / renombrar mesas' },
       { action: 'delete', label: 'Dar de baja / reactivar mesas' },
@@ -301,7 +295,9 @@ function menuTree() {
       icon: m.icon,
       route: m.route,
       section: m.section || null,
-      requires: `${m.key}.view`,
+      // Los grupos contenedores no tienen permiso propio: se muestran si al
+      // menos uno de sus submódulos es visible.
+      requires: m.permissions.some((p) => p.action === 'view') ? `${m.key}.view` : null,
       submodules: (m.submodules || []).map((s) => ({ ...s })),
     }));
 }

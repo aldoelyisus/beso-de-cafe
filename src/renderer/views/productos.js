@@ -1,6 +1,7 @@
 import { h, esc, toast, confirmDialog, openModal, field } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 import { Pager } from '../components/pager.js';
+import { ImagePicker } from '../components/imagePicker.js';
 import { SearchBox, ChipRow, Toggle, sortableTh } from '../components/filters.js';
 
 const PAGE_SIZE = 15;
@@ -87,8 +88,15 @@ export async function ProductosView(root) {
 
     return h('tr', { style: p.is_active ? '' : 'opacity:.55' },
       h('td', {},
-        h('strong', {}, esc(p.nombre)),
-        p.agotado ? h('span', { class: 'badge off', style: 'margin-left:8px' }, 'Agotado') : null
+        h('div', { class: 'prod-fila' },
+          p.foto
+            ? h('img', { class: 'prod-mini', src: p.foto, alt: '' })
+            : h('div', { class: 'prod-mini vacia', title: 'Sin foto' }, '📷'),
+          h('div', {},
+            h('strong', {}, esc(p.nombre)),
+            p.agotado ? h('span', { class: 'badge off', style: 'margin-left:8px' }, 'Agotado') : null
+          )
+        )
       ),
       h('td', {}, p.categoria_nombre ? esc(p.categoria_nombre) : h('span', { class: 'muted' }, 'Sin categoría')),
       h('td', {}, String(p.num_presentaciones)),
@@ -114,6 +122,7 @@ async function openNuevoProducto(cats) {
     ...cats.map((c) => h('option', { value: String(c.id) }, c.nombre))
   );
   const descripcion = h('input', { type: 'text' });
+  const foto = ImagePicker({});
 
   // tamaños
   const tamRows = [];
@@ -148,6 +157,8 @@ async function openNuevoProducto(cats) {
         field('Categoría', categoria)
       ),
       field('Descripción', descripcion, 'Opcional'),
+      h('div', { class: 'section-title' }, 'Foto'),
+      foto.element,
       h('div', { class: 'section-title' }, 'Tamaños y precio'),
       h('div', { class: 'hint', style: 'margin-bottom:8px' }, 'Un solo tamaño para casi todo. Los frappés llevan "Chico" y "Grande".'),
       h('table', { class: 'receta-table' },
@@ -165,10 +176,12 @@ async function openNuevoProducto(cats) {
           .map((r) => ({ nombre: r.n.value.trim(), precio: Number(r.p.value) }))
           .filter((r) => r.nombre || Number.isFinite(r.precio));
         if (!presentaciones.length) throw new Error('Agrega al menos un tamaño con su precio.');
+        if (!foto.getDataUrl()) throw new Error('Falta la foto del producto: es como se reconoce en el punto de venta.');
         const producto = await window.api.productos.create({
           nombre: nombre.value.trim(),
           categoria_id: categoria.value || null,
           descripcion: descripcion.value.trim(),
+          foto: foto.getDataUrl(),
           presentaciones,
           modificadorIds: modChecks.filter((c) => c.cb.checked).map((c) => Number(c.m.id)),
         });

@@ -4,6 +4,17 @@ import { PermissionPicker } from '../components/permissionPicker.js';
 
 export async function RolesView(root) {
   root.innerHTML = '';
+
+  // Red de seguridad: si alguien llega aquí sin el permiso (por la URL), se le
+  // explica en vez de dejarle una pantalla de error.
+  if (!can('roles.view')) {
+    root.append(
+      h('div', { class: 'page-head' }, h('div', {}, h('h2', {}, 'Roles y permisos'))),
+      h('div', { class: 'empty' }, 'No tienes permiso para ver los roles.')
+    );
+    return;
+  }
+
   const [roles, permGroups] = await Promise.all([
     window.api.roles.list(),
     window.api.permissions.list(),

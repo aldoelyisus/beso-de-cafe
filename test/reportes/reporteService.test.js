@@ -281,7 +281,7 @@ test('subir el costo a media jornada NO reescribe lo ya vendido', () => {
 
   // Llegó al mínimo, compra de emergencia más cara: el costo sube a 0.50 /g.
   insumoSvc.registrarMovimiento(
-    { insumoId: grano.id, tipo: 'ajuste_costo', costo_unitario: 0.5, nota: 'compra de emergencia' }, ACTOR);
+    { insumoId: grano.id, tipo: 'ajuste_costo', costo_compra: 500, nota: 'compra de emergencia' }, ACTOR); // $500 el kilo = $0.50 /g
 
   venderYCobrar(presId, 3, 'efectivo'); // tarde: 3 × 5 = 15
 
@@ -299,7 +299,7 @@ test('la corrección de costo no aparece como merma ni como consumo', () => {
   const { presId, grano } = cafe(40);
   venderYCobrar(presId, 1, 'efectivo');
   insumoSvc.registrarMovimiento(
-    { insumoId: grano.id, tipo: 'ajuste_costo', costo_unitario: 9, nota: 'subió' }, ACTOR);
+    { insumoId: grano.id, tipo: 'ajuste_costo', costo_compra: 9000, nota: 'subió' }, ACTOR);
 
   near(svc.merma(rangoHoy).total_costo, 0, 'no suma a merma');
   near(svc.resumen(rangoHoy).merma_costo, 0, 'no suma a la merma del resumen');

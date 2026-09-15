@@ -64,10 +64,17 @@ function crearProductoCategoria(nombre = 'Categoría prueba') {
   return require('../../src/main/services/productoCategoriaService').createCategoria({ nombre });
 }
 
+/**
+ * Foto mínima válida (PNG de 1×1 px) para las pruebas: el producto no se puede
+ * dar de alta sin foto, y a estas pruebas la imagen les da igual.
+ */
+const FOTO_PRUEBA =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
 /** Crea un producto simple (1 tamaño "Único") con la receta que se pase. */
 function crearProducto(over = {}, receta = null) {
   const svc = require('../../src/main/services/productoService');
-  const p = svc.createProducto({ nombre: 'Producto prueba', precio: 50, ...over }, ACTOR);
+  const p = svc.createProducto({ nombre: 'Producto prueba', precio: 50, foto: FOTO_PRUEBA, ...over }, ACTOR);
   if (receta) svc.setReceta(p.presentaciones[0].id, receta, ACTOR);
   return svc.getProducto(p.id);
 }
@@ -78,6 +85,6 @@ function abrirCaja(fondo_inicial = 0) {
 }
 
 module.exports = {
-  getDb, reset, DB_PATH, ACTOR,
+  getDb, reset, DB_PATH, ACTOR, FOTO_PRUEBA,
   crearCategoria, crearInsumo, crearProductoCategoria, crearProducto, abrirCaja,
 };

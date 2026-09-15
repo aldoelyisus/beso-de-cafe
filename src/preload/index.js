@@ -48,7 +48,7 @@ const api = {
     deactivate: (id) => invoke('insumos:deactivate', { id }),
     activate: (id) => invoke('insumos:activate', { id }),
     movimiento: (payload) => invoke('insumos:movimiento', payload),
-    corregirCosto: (id, costo_unitario, nota) => invoke('insumos:corregirCosto', { id, costo_unitario, nota }),
+    corregirCosto: (id, costo_compra, nota) => invoke('insumos:corregirCosto', { id, costo_compra, nota }),
   },
   menu: {
     meta: () => invoke('menu:meta'),
@@ -118,9 +118,11 @@ const api = {
     get: (id) => invoke('ventas:get', { id }),
     historial: (opts) => invoke('ventas:historial', opts || {}),
     catalogoProductos: () => invoke('ventas:catalogoProductos'),
+    mesas: () => invoke('ventas:mesas'),
     producto: (id) => invoke('ventas:producto', { id }),
     abrir: (tipo, mesaId) => invoke('ventas:abrir', { tipo, mesaId }),
     agregarItem: (ventaId, data) => invoke('ventas:agregarItem', { ventaId, ...data }),
+    cambiarTipo: (ventaId, tipo, mesaId) => invoke('ventas:cambiarTipo', { ventaId, tipo, mesaId }),
     cancelarItem: (ventaId, itemId, motivo) => invoke('ventas:cancelarItem', { ventaId, itemId, motivo }),
     cobrar: (ventaId, payload) => invoke('ventas:cobrar', { ventaId, ...payload }), // { itemIds, metodo, etiqueta?, recibido? }
     cancelar: (ventaId, motivo) => invoke('ventas:cancelar', { ventaId, motivo }),

@@ -84,7 +84,14 @@ async function renderShell() {
   try {
     await m.def.render(main, m.param);
   } catch (err) {
-    main.appendChild(h('div', { class: 'empty' }, 'Error al cargar: ' + (err.message || err)));
+    // Se puede tener "ver el módulo" (X.view) sin "ver el listado" (X.list):
+    // en ese caso el mensaje se explica solo, no es un error de la aplicación.
+    const msg = err && err.message ? err.message : String(err);
+    main.innerHTML = '';
+    main.appendChild(h('div', { class: 'empty' },
+      /no tienes permiso/i.test(msg)
+        ? 'No tienes permiso para ver el contenido de esta sección.'
+        : 'Error al cargar: ' + msg));
   }
 }
 

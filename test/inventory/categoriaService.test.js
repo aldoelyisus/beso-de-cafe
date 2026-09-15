@@ -32,6 +32,21 @@ test('rechaza una unidad sugerida que no existe', () => {
   assert.throws(() => svc.createCategoria({ nombre: 'X', unidad_sugerida: 'kg' }), /no válida/i);
 });
 
+test('el nombre duplicado tampoco pasa cambiando mayúsculas', () => {
+  svc.createCategoria({ nombre: 'Café' });
+  for (const variante of ['café', 'CAFÉ', 'CaFé']) {
+    assert.throws(() => svc.createCategoria({ nombre: variante }), /ya existe/i, variante);
+  }
+});
+
+test('renombrar una categoría a la caja de otra se rechaza', () => {
+  svc.createCategoria({ nombre: 'Café' });
+  const otra = svc.createCategoria({ nombre: 'Lácteos' });
+  assert.throws(() => svc.updateCategoria(otra.id, { nombre: 'CAFÉ' }), /ya existe/i);
+  // cambiar solo la caja de su propio nombre sí se puede
+  assert.equal(svc.updateCategoria(otra.id, { nombre: 'lácteos' }).nombre, 'lácteos');
+});
+
 // ---------------- updateCategoria ----------------
 test('renombra una categoría', () => {
   const c = svc.createCategoria({ nombre: 'Viejo' });

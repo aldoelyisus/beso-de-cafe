@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { ACTOR, crearInsumo, crearProducto, crearProductoCategoria, abrirCaja } = require('../helpers/setup');
+const { ACTOR, getDb, crearInsumo, crearProducto, crearProductoCategoria, abrirCaja } = require('../helpers/setup');
 const svc = require('../../src/main/services/ventaService');
 const mesaSvc = require('../../src/main/services/mesaService');
 const insumoSvc = require('../../src/main/services/insumoService');
@@ -276,6 +276,25 @@ test('listHistorial: paginación, filtro por estado y búsqueda', () => {
   assert.equal(svc.listHistorial({ search: 'Terraza', pageSize: 50 }).total, 1);
 });
 
+test('listHistorial trae la promoción y el total realmente cobrado', () => {
+  abrirCaja();
+  const promoSvc = require('../../src/main/services/promocionService');
+  const { presId } = frappe();
+  const promo = promoSvc.createPromocion({ nombre: '$15 off', tipo: 'monto_fijo', ambito: 'cuenta', valor: 15, fecha_inicio: promoSvc.hoyISO(), fecha_fin: '2040-12-31' });
+  let v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1 }, ACTOR); // 70
+  v = svc.aplicarPromocion(v.id, promo.id, ACTOR);
+  svc.cobrar(v.id, { itemIds: v.items_sin_pagar, metodo: 'efectivo' }, ACTOR);
+
+  // Sin estos campos el historial mostraba $70 y nunca decía que hubo promoción.
+  const fila = svc.listHistorial({ pageSize: 50 }).rows.find((r) => r.id === v.id);
+  near(fila.total, 70, 'subtotal');
+  near(fila.descuento, 15, 'descuento');
+  near(fila.total_final, 55, 'total cobrado');
+  near(fila.pagado, 55, 'pagado');
+  assert.equal(fila.promocion_nombre, '$15 off');
+});
+
 // ================= efectivo recibido / cambio =================
 test('cobro en efectivo: guarda el efectivo recibido y el cambio a dar', () => {
   abrirCaja();
@@ -340,4 +359,188 @@ test('getVenta expone total, pagado, saldo e items_sin_pagar', () => {
   assert.equal(v.pagado, 70);
   assert.equal(v.saldo, 140);
   assert.equal(v.items_sin_pagar.length, 2);
+});
+
+// ================= pasar la cuenta a llevar =================
+test('la mesa se retira: pasar a llevar consume los vasos y libera la mesa', () => {
+  const { presId, vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+  assert.equal(stock(vaso.id), 100, 'servido aquí no gastó vasos');
+
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+
+  assert.equal(r.tipo, 'llevar');
+  assert.equal(r.mesa_id, null, 'la mesa queda libre');
+  assert.equal(r.items_convertidos, 2);
+  assert.equal(stock(vaso.id), 98, 'ahora sí salieron los 2 vasos');
+  assert.ok(r.items.every((i) => i.para_llevar === 1), 'los renglones quedan marcados para llevar');
+  assert.equal(mesaSvc.listMesas().find((x) => x.id === m.id).venta_abierta_id, null, 'la mesa ya no aparece ocupada');
+});
+
+test('el costo del renglón sube con el vaso, y el reporte lo ve', () => {
+  const { presId, vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: false }, ACTOR);
+  const itemId = svc.getVenta(v.id).items[0].id;
+  const costo = () => getDb().prepare(
+    'SELECT COALESCE(SUM(cantidad_base * costo_unitario), 0) c FROM venta_item_consumo WHERE venta_item_id = ? AND devuelto = 0'
+  ).get(itemId).c;
+
+  // base 40g@0.12 + leche 100ml@0.025 = 4.80 + 2.50 = 7.30
+  near(costo(), 7.30, 'costo servido aquí');
+  svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  near(costo(), 8.80, 'costo con el vaso de $1.50');
+  const fila = getDb().prepare('SELECT cantidad_base FROM venta_item_consumo WHERE venta_item_id = ? AND insumo_id = ?').get(itemId, vaso.id);
+  assert.ok(fila && Math.abs(fila.cantidad_base - 1) < 1e-9, 'quedó registrado el vaso que consumió');
+});
+
+test('los renglones que ya eran para llevar no se tocan dos veces', () => {
+  const { presId, vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: true }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: false }, ACTOR);
+  assert.equal(stock(vaso.id), 99);
+
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  assert.equal(r.items_convertidos, 1, 'solo el que estaba servido aquí');
+  assert.equal(stock(vaso.id), 98, 'un vaso más, no dos');
+});
+
+test('un producto cancelado no revive al pasar la cuenta a llevar', () => {
+  const { presId, vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+  const items = svc.getVenta(v.id).items;
+  svc.cancelarItem(v.id, items[0].id, 'se arrepintió', ACTOR);
+
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  assert.equal(r.items_convertidos, 1, 'solo el activo');
+  assert.equal(stock(vaso.id), 99, 'un solo vaso');
+  assert.equal(r.items.find((i) => i.id === items[0].id).para_llevar, 0, 'el cancelado se queda como estaba');
+});
+
+test('volver a sentar la cuenta devuelve los vasos', () => {
+  const { presId, vaso } = frappe();
+  const m1 = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const m2 = mesaSvc.createMesa({ nombre: 'Mesa 2' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m1.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+
+  svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  assert.equal(stock(vaso.id), 98);
+
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: m2.id }, ACTOR);
+  assert.equal(r.tipo, 'mesa');
+  assert.equal(r.mesa_id, m2.id);
+  assert.equal(stock(vaso.id), 100, 'los vasos regresaron al inventario');
+});
+
+test('cambiar de mesa no toca el inventario', () => {
+  const { presId, vaso, base } = frappe();
+  const m1 = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const m2 = mesaSvc.createMesa({ nombre: 'Mesa 2' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m1.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: false }, ACTOR);
+  const antesBase = stock(base.id);
+
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: m2.id }, ACTOR);
+  assert.equal(r.mesa_id, m2.id);
+  assert.equal(r.items_convertidos, 0);
+  assert.equal(stock(vaso.id), 100);
+  assert.equal(stock(base.id), antesBase);
+});
+
+test('no se pasa una cuenta a una mesa que ya tiene cuenta abierta', () => {
+  const { presId } = frappe();
+  const m1 = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const m2 = mesaSvc.createMesa({ nombre: 'Mesa 2' });
+  const a = svc.abrirVenta({ tipo: 'mesa', mesaId: m1.id }, ACTOR);
+  const b = svc.abrirVenta({ tipo: 'mesa', mesaId: m2.id }, ACTOR);
+  svc.agregarItem(b.id, { presentacionId: presId, cantidad: 1 }, ACTOR);
+  assert.throws(() => svc.cambiarTipoVenta(a.id, { tipo: 'mesa', mesaId: m2.id }, ACTOR),
+    /ya tiene abierta la cuenta/i);
+  assert.equal(svc.getVenta(a.id).mesa_id, m1.id, 'se quedó donde estaba');
+});
+
+test('rechaza mesas inexistentes, dadas de baja o sin elegir', () => {
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const baja = mesaSvc.createMesa({ nombre: 'Mesa 9' });
+  mesaSvc.deactivateMesa(baja.id);
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  assert.throws(() => svc.cambiarTipoVenta(v.id, { tipo: 'mesa' }, ACTOR), /Elige la mesa/i);
+  assert.throws(() => svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: 9999 }, ACTOR), /no existe o está dada de baja/i);
+  assert.throws(() => svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: baja.id }, ACTOR), /no existe o está dada de baja/i);
+});
+
+test('avisa cuando la cuenta ya está en ese destino', () => {
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const enMesa = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  assert.throws(() => svc.cambiarTipoVenta(enMesa.id, { tipo: 'mesa', mesaId: m.id }, ACTOR), /ya está en esa mesa/i);
+  const llevar = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  assert.throws(() => svc.cambiarTipoVenta(llevar.id, { tipo: 'llevar' }, ACTOR), /ya es para llevar/i);
+});
+
+test('no se mueve una cuenta ya cobrada ni una cancelada', () => {
+  const { presId } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  abrirCaja(0);
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1 }, ACTOR);
+  svc.cobrar(v.id, { itemIds: svc.getVenta(v.id).items_sin_pagar, metodo: 'efectivo' }, ACTOR);
+  assert.throws(() => svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR), /ya está cerrada/i);
+
+  const c = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  svc.cancelarVenta(c.id, 'error', ACTOR);
+  assert.throws(() => svc.cambiarTipoVenta(c.id, { tipo: 'mesa', mesaId: m.id }, ACTOR), /ya está cerrada/i);
+});
+
+test('cambiar el tipo de una cuenta inexistente', () => {
+  assert.throws(() => svc.cambiarTipoVenta(9999, { tipo: 'llevar' }, ACTOR), /La cuenta no existe/i);
+});
+
+test('una cuenta vacía se pasa a llevar sin mover inventario', () => {
+  const { vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  assert.equal(r.tipo, 'llevar');
+  assert.equal(r.items_convertidos, 0);
+  assert.equal(stock(vaso.id), 100);
+});
+
+test('se respeta la opción de leche elegida al pasar a llevar', () => {
+  const entera = crearInsumo({ nombre: 'Leche entera', unidad_base: 'ml', factor_compra: 1000, costo_compra: 25, stock_inicial_compra: 10 });
+  const deslac = crearInsumo({ nombre: 'Leche deslactosada', unidad_base: 'ml', factor_compra: 1000, costo_compra: 30, stock_inicial_compra: 10 });
+  const vaso = crearInsumo({ nombre: 'Vaso', unidad_base: 'pieza', factor_compra: 1, costo_compra: 1.5, stock_inicial_compra: 100 });
+  const p = crearProducto({ nombre: 'Latte', precio: 50 }, {
+    items: [{ insumo_id: vaso.id, cantidad_base: 1, modo: 'llevar' }],
+    grupos: [{ nombre: 'Leche', cantidad_base: 100, modo: 'siempre', insumo_default_id: entera.id, opciones: [entera.id, deslac.id] }],
+  });
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  const grupoId = p.presentaciones[0].grupos[0].id;
+  svc.agregarItem(v.id, { presentacionId: p.presentaciones[0].id, cantidad: 1, paraLlevar: false, opciones: { [grupoId]: deslac.id } }, ACTOR);
+  assert.equal(stock(deslac.id), 9900, 'se sirvió con deslactosada');
+
+  svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  assert.equal(stock(deslac.id), 9900, 'la leche no se vuelve a cobrar');
+  assert.equal(stock(entera.id), 10000, 'ni se cambia por la predeterminada');
+  assert.equal(stock(vaso.id), 99, 'solo se agregó el vaso');
+});
+
+test('los movimientos del cambio quedan en el libro de inventario con su motivo', () => {
+  const { presId, vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: false }, ACTOR);
+  svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  const mov = insumoSvc.listMovimientos({ insumoId: vaso.id })[0];
+  assert.equal(mov.tipo, 'consumo');
+  assert.match(mov.motivo, /Pasó a para llevar/i);
+  assert.match(mov.referencia, new RegExp('Cuenta #' + v.id));
 });

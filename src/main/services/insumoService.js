@@ -3,6 +3,7 @@
 const { getDb } = require('../db/connection');
 const { isUnit, MERMA_MOTIVOS } = require('../inventory/units');
 const { paginate } = require('./pagination');
+const { buscarChoque } = require('./nombres');
 
 const COLS = `
   i.id, i.nombre, i.categoria_id, i.unidad_base,
@@ -10,12 +11,68 @@ const COLS = `
   i.stock, i.stock_minimo, i.notas, i.is_active,
   i.created_at, i.updated_at,
   c.nombre AS categoria_nombre,
-  (i.stock <= i.stock_minimo) AS bajo_stock
+  (i.stock <= i.stock_minimo) AS bajo_stock,
+  -- Faltante: se vendió más de lo que había registrado. No es lo mismo que
+  -- "por acabarse" y no debe confundirse con ello en la pantalla.
+  (i.stock < 0) AS faltante
 `;
 
 function num(v, def = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
+}
+
+/**
+ * Igual que `num`, pero avisa en vez de tragarse la basura: si el campo trae
+ * texto (pasa al pegar de WhatsApp) antes quedaba en 0 o 1 sin decir nada y el
+ * insumo terminaba valiendo $0 en el reporte de inversión.
+ */
+function numCampo(v, campo, def = 0) {
+  if (v === undefined || v === null || String(v).trim() === '') return def;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new Error(`"${campo}" debe ser un número.`);
+  return n;
+}
+
+/**
+ * El nombre del insumo es único "como lo lee una persona": "Café en grano",
+ * "café en grano" y "CAFÉ EN GRANO" son el mismo insumo. Con dos fichas iguales
+ * la existencia se parte: las recetas descuentan de una y las compras entran a
+ * la otra. Ver `nombres.js` (el índice de la migración 014 es la red).
+ */
+function assertNombreLibre(db, nombre, exceptId = null) {
+  const choque = buscarChoque(db.prepare('SELECT id, nombre, is_active FROM insumos').all(), nombre, exceptId);
+  if (choque) {
+    throw new Error(choque.is_active
+      ? 'Ya existe un insumo con ese nombre.'
+      : 'Ya existe un insumo con ese nombre, dado de baja. Reactívalo en vez de crear otro.');
+  }
+}
+
+/** La categoría debe existir; si no, el mensaje lo explica (antes salía el error de la BD). */
+function assertCategoria(db, categoriaId) {
+  if (!categoriaId) return;
+  if (!db.prepare('SELECT id FROM insumo_categorias WHERE id = ?').get(categoriaId)) {
+    throw new Error('La categoría seleccionada no existe.');
+  }
+}
+
+/**
+ * Lista, en lenguaje llano, por qué un insumo ya no está "en blanco".
+ * Se usa para no dejar cambiarle la unidad base a medio camino.
+ */
+function enUso(db, id) {
+  const uno = (sql) => db.prepare(sql).get(id).n;
+  const razones = [];
+  const insumo = db.prepare('SELECT stock FROM insumos WHERE id = ?').get(id);
+  if (insumo && insumo.stock !== 0) razones.push(`tiene existencia (${insumo.stock})`);
+  if (uno('SELECT COUNT(*) n FROM inventory_movements WHERE insumo_id = ?')) razones.push('ya tiene movimientos registrados');
+  const recetas =
+    uno('SELECT COUNT(*) n FROM receta_items WHERE insumo_id = ?') +
+    uno('SELECT COUNT(*) n FROM modificador_items WHERE insumo_id = ?') +
+    uno('SELECT COUNT(*) n FROM receta_grupo_opciones WHERE insumo_id = ?');
+  if (recetas) razones.push(`se usa en ${recetas} receta(s)`);
+  return razones;
 }
 
 const INSUMO_SORTS = {
@@ -87,6 +144,13 @@ function countBajoStock() {
     .get().c;
 }
 
+/** Insumos con existencia negativa: salió más de lo que se había registrado. */
+function countFaltantes() {
+  return getDb()
+    .prepare('SELECT COUNT(*) c FROM insumos WHERE is_active = 1 AND stock < 0')
+    .get().c;
+}
+
 /** Normaliza y valida los campos comunes de un insumo. */
 function cleanInsumoData(data, { partial = false } = {}) {
   const out = {};
@@ -103,15 +167,15 @@ function cleanInsumoData(data, { partial = false } = {}) {
   }
   if (data.unidad_compra !== undefined || !partial) out.unidad_compra = String(data.unidad_compra || '').trim();
   if (data.factor_compra !== undefined || !partial) {
-    out.factor_compra = num(data.factor_compra, 1);
+    out.factor_compra = numCampo(data.factor_compra, 'Rinde (en unidad base)', 1);
     if (out.factor_compra <= 0) throw new Error('El factor de compra debe ser mayor a 0.');
   }
   if (data.costo_compra !== undefined || !partial) {
-    out.costo_compra = num(data.costo_compra, 0);
+    out.costo_compra = numCampo(data.costo_compra, 'Costo de compra', 0);
     if (out.costo_compra < 0) throw new Error('El costo de compra no puede ser negativo.');
   }
   if (data.stock_minimo !== undefined || !partial) {
-    out.stock_minimo = num(data.stock_minimo, 0);
+    out.stock_minimo = numCampo(data.stock_minimo, 'Stock mínimo', 0);
     if (out.stock_minimo < 0) throw new Error('El stock mínimo no puede ser negativo.');
   }
   if (data.notas !== undefined) out.notas = String(data.notas || '');
@@ -125,8 +189,10 @@ function cleanInsumoData(data, { partial = false } = {}) {
 function createInsumo(data, actor = {}) {
   const db = getDb();
   const c = cleanInsumoData(data);
-  const stockInicialCompra = num(data.stock_inicial_compra, 0);
+  const stockInicialCompra = numCampo(data.stock_inicial_compra, 'Existencia inicial', 0);
   if (stockInicialCompra < 0) throw new Error('La existencia inicial no puede ser negativa.');
+  assertNombreLibre(db, c.nombre);
+  assertCategoria(db, c.categoria_id);
 
   const costoBase = c.costo_compra > 0 && c.factor_compra > 0 ? c.costo_compra / c.factor_compra : 0;
   const stockBase = stockInicialCompra * c.factor_compra;
@@ -173,6 +239,22 @@ function updateInsumo(id, data) {
   const insumo = db.prepare('SELECT * FROM insumos WHERE id = ?').get(id);
   if (!insumo) throw new Error('El insumo no existe.');
   const c = cleanInsumoData(data, { partial: true });
+  if (c.nombre !== undefined) assertNombreLibre(db, c.nombre, Number(id));
+  if (c.categoria_id !== undefined) assertCategoria(db, c.categoria_id);
+
+  // La unidad base es la moneda del insumo: el stock, las recetas y los
+  // movimientos ya registrados están en ella. Cambiarla no convierte nada
+  // (2000 g se volverían 2000 ml), así que solo se permite mientras el insumo
+  // esté "en blanco": sin existencia, sin movimientos y sin usarse en recetas.
+  if (c.unidad_base !== undefined && c.unidad_base !== insumo.unidad_base) {
+    const usos = enUso(db, id);
+    if (usos.length) {
+      throw new Error(
+        `No se puede cambiar la unidad de "${insumo.nombre}" (${insumo.unidad_base} → ${c.unidad_base}) porque ${usos.join(' y ')}. ` +
+        'La existencia y las recetas quedarían en la unidad equivocada. Da de baja este insumo y crea uno nuevo con la unidad correcta.'
+      );
+    }
+  }
 
   // Si cambia costo_compra o factor y no hay stock, recalculamos el costo base.
   let costo_unitario = insumo.costo_unitario;
@@ -231,13 +313,19 @@ function activateInsumo(id) {
  *                          `proveedor` (opcional) guarda dónde se compró esta vez.
  *  tipo = 'merma'        -> cantidad en unidad BASE. Requiere motivo. No permite dejar stock negativo.
  *  tipo = 'ajuste'       -> `conteo` es el stock real contado (unidad BASE). Registra la diferencia.
- *  tipo = 'ajuste_costo' -> `costo_unitario` es el nuevo costo por unidad BASE. NO toca la
+ *  tipo = 'ajuste_costo' -> `costo_compra` es el nuevo precio de UNA presentación de compra
+ *                          (el kilo, el paquete, la botella de 1.2 L); el costo por unidad base
+ *                          se calcula dividiendo entre lo que rinde. NO toca la
  *                          existencia; solo corrige el costo hacia adelante. Requiere `nota`.
  */
 function registrarMovimiento(payload, actor = {}) {
   const db = getDb();
   const insumo = db.prepare('SELECT * FROM insumos WHERE id = ?').get(payload.insumoId);
   if (!insumo) throw new Error('El insumo no existe.');
+  // Un insumo de baja ya no se ofrece en recetas: lo que entre aquí nunca sale.
+  if (!insumo.is_active) {
+    throw new Error(`"${insumo.nombre}" está dado de baja. Reactívalo para poder mover su existencia.`);
+  }
 
   const tipo = payload.tipo;
   let cantidadBase;
@@ -248,20 +336,28 @@ function registrarMovimiento(payload, actor = {}) {
   const proveedor = String(payload.proveedor || '').trim();
 
   if (tipo === 'entrada') {
-    cantidadCaptura = num(payload.cantidad, 0);
+    cantidadCaptura = numCampo(payload.cantidad, 'Cantidad', 0);
     if (cantidadCaptura <= 0) throw new Error('La cantidad de la entrada debe ser mayor a 0.');
     unidadCaptura = insumo.unidad_compra || insumo.unidad_base;
     cantidadBase = cantidadCaptura * insumo.factor_compra;
 
-    // Costo de esta compra (por unidad de compra); si no se indica, usa el último.
-    const costoCompra = payload.costo_compra != null ? num(payload.costo_compra, insumo.costo_compra) : insumo.costo_compra;
+    // Costo de ESTA compra (por unidad de compra). Si el campo viene vacío se
+    // conserva el último costo conocido; si viene capturado se usa tal cual,
+    // incluido el 0 (mercancía de regalo), que sí debe bajar el promedio.
+    const capturado = payload.costo_compra !== undefined && payload.costo_compra !== null
+      && String(payload.costo_compra).trim() !== '';
+    const costoCompra = capturado ? numCampo(payload.costo_compra, 'Costo de compra') : insumo.costo_compra;
+    if (costoCompra < 0) throw new Error('El costo de compra no puede ser negativo.');
     const costoInBase = insumo.factor_compra > 0 ? costoCompra / insumo.factor_compra : 0;
 
-    // Promedio ponderado.
-    const stockPrev = insumo.stock;
-    if (stockPrev + cantidadBase > 0 && costoInBase > 0) {
+    // Promedio ponderado. Un stock NEGATIVO no es existencia: es un faltante sin
+    // registrar. Si entrara al promedio se comería parte del valor de lo que se
+    // acaba de comprar e inflaría el costo de todo (con -45 galletas, comprar a
+    // $1.30 daba $1.3441). Para el promedio cuenta como cero.
+    const stockPrev = Math.max(0, insumo.stock);
+    if (stockPrev + cantidadBase > 0) {
       costoUnitario = (stockPrev * insumo.costo_unitario + cantidadBase * costoInBase) / (stockPrev + cantidadBase);
-    } else if (costoInBase > 0) {
+    } else {
       costoUnitario = costoInBase;
     }
     if (!motivo) motivo = 'Compra / recepción';
@@ -269,7 +365,7 @@ function registrarMovimiento(payload, actor = {}) {
     db.prepare("UPDATE insumos SET costo_compra = ?, costo_unitario = ? WHERE id = ?")
       .run(costoCompra, costoUnitario, insumo.id);
   } else if (tipo === 'merma') {
-    cantidadCaptura = num(payload.cantidad, 0);
+    cantidadCaptura = numCampo(payload.cantidad, 'Cantidad perdida', 0);
     if (cantidadCaptura <= 0) throw new Error('La cantidad de merma debe ser mayor a 0.');
     if (!MERMA_MOTIVOS.some((m) => m.key === motivo)) {
       throw new Error('Selecciona un motivo de merma.');
@@ -277,30 +373,39 @@ function registrarMovimiento(payload, actor = {}) {
     unidadCaptura = insumo.unidad_base;
     cantidadBase = -cantidadCaptura;
     if (insumo.stock + cantidadBase < 0) {
-      throw new Error(`No hay suficiente existencia. Stock actual: ${insumo.stock} ${insumo.unidad_base}.`);
+      throw new Error(insumo.stock < 0
+        ? `"${insumo.nombre}" está en ${insumo.stock} ${insumo.unidad_base}: hay un faltante sin registrar. `
+          + 'Haz un conteo físico o registra la compra que falta antes de capturar la merma.'
+        : `No hay suficiente existencia. Stock actual: ${insumo.stock} ${insumo.unidad_base}.`);
     }
     if (payload.nota) motivo = `${motivo}: ${String(payload.nota).trim()}`;
   } else if (tipo === 'ajuste') {
-    const conteo = num(payload.conteo, NaN);
+    const conteo = numCampo(payload.conteo, 'Conteo físico', NaN);
     if (!Number.isFinite(conteo) || conteo < 0) throw new Error('Indica el conteo físico (0 o más).');
     unidadCaptura = insumo.unidad_base;
     cantidadCaptura = conteo;
     cantidadBase = conteo - insumo.stock; // diferencia con signo
     motivo = payload.nota ? `Conteo físico: ${String(payload.nota).trim()}` : 'Conteo físico';
   } else if (tipo === 'ajuste_costo') {
-    const nuevoCosto = num(payload.costo_unitario, NaN);
-    if (!Number.isFinite(nuevoCosto) || nuevoCosto <= 0) {
-      throw new Error('Indica el nuevo costo por unidad base (mayor a 0).');
+    // Se captura el precio de la PRESENTACIÓN, igual que en una entrada: pedir
+    // "cuánto cuesta un gramo" obligaba a dividir entre 1000 de cabeza, y un 400
+    // escrito en vez de 0.40 multiplicaba por mil el costo de todo el menú.
+    const precio = numCampo(payload.costo_compra, 'Nuevo precio', NaN);
+    if (!Number.isFinite(precio) || precio <= 0) {
+      throw new Error('Indica el nuevo precio de compra (mayor a 0).');
     }
     const nota = String(payload.nota || '').trim();
     if (!nota) throw new Error('Escribe el motivo de la corrección de costo.');
-    unidadCaptura = `$/${insumo.unidad_base}`;
-    cantidadCaptura = nuevoCosto;
+    const nuevoCosto = precio / (insumo.factor_compra > 0 ? insumo.factor_compra : 1);
+    unidadCaptura = insumo.unidad_compra || insumo.unidad_base;
+    cantidadCaptura = precio;
     cantidadBase = 0; // no toca la existencia
     costoUnitario = nuevoCosto;
     motivo = `Corrección de costo: ${nota}`;
-    db.prepare("UPDATE insumos SET costo_unitario = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(nuevoCosto, insumo.id);
+    // También queda como el precio vigente de la presentación: la próxima
+    // entrada ya viene prellenada con él.
+    db.prepare("UPDATE insumos SET costo_compra = ?, costo_unitario = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(precio, nuevoCosto, insumo.id);
   } else {
     throw new Error('Tipo de movimiento no válido.');
   }
@@ -356,6 +461,7 @@ module.exports = {
   listInsumoOptions,
   getInsumo,
   countBajoStock,
+  countFaltantes,
   createInsumo,
   updateInsumo,
   deactivateInsumo,

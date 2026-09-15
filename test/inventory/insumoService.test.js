@@ -54,6 +54,64 @@ test('rechaza stock mínimo negativo', () => {
   assert.throws(() => svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_minimo: -5 }), /negativo/i);
 });
 
+// ---------------- integridad del alta ----------------
+test('no se pueden crear dos insumos con el mismo nombre', () => {
+  svc.createInsumo({ nombre: 'Café en grano', unidad_base: 'g', factor_compra: 1000, costo_compra: 300 });
+  assert.throws(
+    () => svc.createInsumo({ nombre: 'Café en grano', unidad_base: 'g', factor_compra: 1000, costo_compra: 320 }),
+    /Ya existe un insumo con ese nombre/i
+  );
+});
+
+test('el nombre repetido tampoco pasa cambiando mayúsculas, acentos o espacios', () => {
+  svc.createInsumo({ nombre: 'Café en grano', unidad_base: 'g', factor_compra: 1, costo_compra: 1 });
+  // "CAFÉ" no lo detecta COLLATE NOCASE de SQLite (solo pliega ASCII): la
+  // comparación buena vive en services/nombres.js.
+  for (const variante of ['CAFÉ EN GRANO', 'café en grano', 'Cafe en grano', '  Café  en  grano  ']) {
+    assert.throws(
+      () => svc.createInsumo({ nombre: variante, unidad_base: 'g', factor_compra: 1, costo_compra: 1 }),
+      /Ya existe/i, variante
+    );
+  }
+});
+
+test('si el insumo repetido está dado de baja, el mensaje dice que se reactive', () => {
+  const i = svc.createInsumo({ nombre: 'Mango', unidad_base: 'g', factor_compra: 1, costo_compra: 1 });
+  svc.deactivateInsumo(i.id);
+  assert.throws(() => svc.createInsumo({ nombre: 'Mango', unidad_base: 'g', factor_compra: 1, costo_compra: 1 }),
+    /dado de baja.*Reactívalo/i);
+});
+
+test('renombrar un insumo al nombre de otro se rechaza', () => {
+  svc.createInsumo({ nombre: 'Leche', unidad_base: 'ml', factor_compra: 1, costo_compra: 1 });
+  const otro = svc.createInsumo({ nombre: 'Cocoa', unidad_base: 'g', factor_compra: 1, costo_compra: 1 });
+  assert.throws(() => svc.updateInsumo(otro.id, { nombre: 'leche' }), /Ya existe/i);
+  // pero conservar su propio nombre sí se puede
+  assert.equal(svc.updateInsumo(otro.id, { nombre: 'Cocoa' }).nombre, 'Cocoa');
+});
+
+test('una categoría inexistente da un mensaje claro, no el error de la base', () => {
+  assert.throws(
+    () => svc.createInsumo({ nombre: 'X', unidad_base: 'g', categoria_id: 9999, factor_compra: 1, costo_compra: 1 }),
+    /La categoría seleccionada no existe/i
+  );
+});
+
+test('texto en un campo numérico se rechaza con el nombre del campo', () => {
+  const base = { nombre: 'X', unidad_base: 'g' };
+  assert.throws(() => svc.createInsumo({ ...base, factor_compra: 'mil', costo_compra: 1 }), /Rinde.*debe ser un número/i);
+  assert.throws(() => svc.createInsumo({ ...base, factor_compra: 1, costo_compra: 'cincuenta' }), /Costo de compra.*debe ser un número/i);
+  assert.throws(() => svc.createInsumo({ ...base, factor_compra: 1, costo_compra: 1, stock_minimo: 'poco' }), /Stock mínimo.*debe ser un número/i);
+  assert.throws(() => svc.createInsumo({ ...base, factor_compra: 1, costo_compra: 1, stock_inicial_compra: 'dos' }), /Existencia inicial.*debe ser un número/i);
+});
+
+test('un campo numérico vacío toma el valor por defecto, sin error', () => {
+  const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: '', costo_compra: '', stock_minimo: '' });
+  assert.equal(i.factor_compra, 1);
+  assert.equal(i.costo_compra, 0);
+  assert.equal(i.stock_minimo, 0);
+});
+
 // ---------------- updateInsumo ----------------
 test('edita el nombre sin tocar el stock', () => {
   const i = svc.createInsumo({ nombre: 'Viejo', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 10 });
@@ -70,6 +128,45 @@ test('si no hay stock, cambiar el costo de compra recalcula el costo unitario', 
 
 test('update de insumo inexistente lanza error', () => {
   assert.throws(() => svc.updateInsumo(999, { nombre: 'x' }), /no existe/i);
+});
+
+// ---------------- la unidad base no se cambia a medio camino ----------------
+test('no se puede cambiar la unidad base de un insumo con existencia', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', unidad_compra: 'kg', factor_compra: 1000, costo_compra: 300, stock_inicial_compra: 2 });
+  assert.throws(() => svc.updateInsumo(i.id, { unidad_base: 'ml' }), /No se puede cambiar la unidad/i);
+  const despues = svc.getInsumo(i.id);
+  assert.equal(despues.unidad_base, 'g', 'la unidad no cambió');
+  assert.equal(despues.stock, 2000, 'la existencia quedó intacta');
+});
+
+test('el mensaje explica por qué no se puede cambiar la unidad', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 500 });
+  try {
+    svc.updateInsumo(i.id, { unidad_base: 'ml' });
+    assert.fail('debería haber lanzado');
+  } catch (e) {
+    assert.match(e.message, /tiene existencia/i);
+    assert.match(e.message, /movimientos registrados/i);
+    assert.match(e.message, /crea uno nuevo/i, 'dice qué hacer en su lugar');
+  }
+});
+
+test('un insumo recién creado y en blanco SÍ puede cambiar de unidad', () => {
+  const i = svc.createInsumo({ nombre: 'Nuevo', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 0 });
+  assert.equal(svc.updateInsumo(i.id, { unidad_base: 'ml' }).unidad_base, 'ml');
+});
+
+test('guardar la ficha sin tocar la unidad no se bloquea', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 100 });
+  const u = svc.updateInsumo(i.id, { unidad_base: 'g', notas: 'una nota' });
+  assert.equal(u.notas, 'una nota');
+});
+
+test('con movimientos pero sin existencia tampoco se cambia la unidad', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 10 });
+  svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste', conteo: 0 }, ACTOR);
+  assert.equal(svc.getInsumo(i.id).stock, 0);
+  assert.throws(() => svc.updateInsumo(i.id, { unidad_base: 'ml' }), /movimientos registrados/i);
 });
 
 // ---------------- registrarMovimiento: entrada ----------------
@@ -91,6 +188,57 @@ test('el proveedor solo se guarda en las entradas', () => {
   const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 10 });
   svc.registrarMovimiento({ insumoId: i.id, tipo: 'merma', cantidad: 1, motivo: 'derrame', proveedor: 'Tienda' }, ACTOR);
   assert.equal(svc.listMovimientos({ insumoId: i.id })[0].proveedor, '');
+});
+
+test('la entrada rechaza un costo de compra negativo', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', unidad_compra: 'kg', factor_compra: 1000, costo_compra: 300, stock_inicial_compra: 2 });
+  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'entrada', cantidad: 1, costo_compra: -50 }, ACTOR), /no puede ser negativo/i);
+  const despues = svc.getInsumo(i.id);
+  assert.equal(despues.stock, 2000, 'no entró nada');
+  assert.equal(despues.costo_compra, 300, 'el costo de compra quedó intacto');
+});
+
+test('el campo de costo vacío conserva el último costo conocido', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', unidad_compra: 'kg', factor_compra: 1000, costo_compra: 300, stock_inicial_compra: 2 });
+  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'entrada', cantidad: 2 }, ACTOR);
+  assert.equal(r.insumo.stock, 4000);
+  near(r.insumo.costo_unitario, 0.3, 'sigue en el costo de siempre');
+});
+
+test('mercancía de regalo (costo 0 capturado) sí baja el promedio', () => {
+  const i = svc.createInsumo({ nombre: 'Café', unidad_base: 'g', unidad_compra: 'kg', factor_compra: 1000, costo_compra: 300, stock_inicial_compra: 1 });
+  // 1000 g @ 0.30 + 1000 g @ 0  ->  0.15
+  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'entrada', cantidad: 1, costo_compra: 0 }, ACTOR);
+  near(r.insumo.costo_unitario, 0.15, 'el promedio baja a la mitad');
+});
+
+test('no se mueve la existencia de un insumo dado de baja', () => {
+  const i = svc.createInsumo({ nombre: 'Retirado', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 100 });
+  svc.deactivateInsumo(i.id);
+  for (const mov of [
+    { tipo: 'entrada', cantidad: 50, costo_compra: 2 },
+    { tipo: 'merma', cantidad: 10, motivo: 'derrame' },
+    { tipo: 'ajuste', conteo: 5 },
+    { tipo: 'ajuste_costo', costo_compra: 9, nota: 'x' },
+  ]) {
+    assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, ...mov }, ACTOR),
+      /dado de baja.*Reactívalo/i, `tipo ${mov.tipo}`);
+  }
+  assert.equal(svc.getInsumo(i.id).stock, 100, 'la existencia no se movió');
+});
+
+test('al reactivar el insumo, sus existencias vuelven a moverse', () => {
+  const i = svc.createInsumo({ nombre: 'Retirado', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 100 });
+  svc.deactivateInsumo(i.id);
+  svc.activateInsumo(i.id);
+  assert.equal(svc.registrarMovimiento({ insumoId: i.id, tipo: 'entrada', cantidad: 50, costo_compra: 1 }, ACTOR).insumo.stock, 150);
+});
+
+test('texto en la cantidad de un movimiento se rechaza', () => {
+  const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 100 });
+  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'entrada', cantidad: 'dos' }, ACTOR), /debe ser un número/i);
+  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'merma', cantidad: 'poco', motivo: 'derrame' }, ACTOR), /debe ser un número/i);
+  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste', conteo: 'como cien' }, ACTOR), /debe ser un número/i);
 });
 
 test('entrada con cantidad <= 0 lanza error', () => {
@@ -136,41 +284,57 @@ test('ajuste rechaza un conteo inválido', () => {
 });
 
 // ---------------- registrarMovimiento: ajuste_costo ----------------
-test('ajuste_costo cambia el costo unitario sin tocar la existencia', () => {
+test('ajuste_costo: se captura el precio del kilo y el sistema calcula el del gramo', () => {
   const i = svc.createInsumo({ nombre: 'Café soluble', unidad_base: 'g', unidad_compra: 'kg', factor_compra: 1000, costo_compra: 50, stock_inicial_compra: 2 });
   near(i.costo_unitario, 0.05, 'costo inicial');
-  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_unitario: 0.055, nota: 'lo compré en otra tienda' }, ACTOR);
-  near(r.insumo.costo_unitario, 0.055, 'costo corregido');
+  // La dueña escribe lo que cuesta el kilo ($55), no el gramo.
+  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 55, nota: 'lo compré en otra tienda' }, ACTOR);
+  near(r.insumo.costo_unitario, 0.055, '55 / 1000 por gramo');
   assert.equal(r.insumo.stock, 2000, 'la existencia no cambia');
   assert.equal(r.cantidadBase, 0);
 });
 
-test('ajuste_costo no toca el costo de compra de la presentación', () => {
+test('ajuste_costo deja el precio nuevo como el vigente de la presentación', () => {
   const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', unidad_compra: 'kg', factor_compra: 1000, costo_compra: 50, stock_inicial_compra: 1 });
-  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_unitario: 0.09, nota: 'subió' }, ACTOR);
-  assert.equal(r.insumo.costo_compra, 50);
+  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 90, nota: 'subió' }, ACTOR);
+  assert.equal(r.insumo.costo_compra, 90, 'la próxima entrada ya viene con $90 el kilo');
+  near(r.insumo.costo_unitario, 0.09);
+});
+
+test('ajuste_costo con presentación rara: botella de 1.2 L a $30', () => {
+  const i = svc.createInsumo({ nombre: 'Leche', unidad_base: 'ml', unidad_compra: 'Botella 1.2 L', factor_compra: 1200, costo_compra: 28, stock_inicial_compra: 3 });
+  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 30, nota: 'subió la leche' }, ACTOR);
+  near(r.insumo.costo_unitario, 0.025, '30 / 1200 por mililitro, sin que nadie divida a mano');
+  assert.equal(r.insumo.stock, 3600, 'la existencia no se movió');
+});
+
+test('ajuste_costo con insumo suelto: el precio es el de una pieza', () => {
+  const i = svc.createInsumo({ nombre: 'Vaso', unidad_base: 'pieza', factor_compra: 1, costo_compra: 1.5, stock_inicial_compra: 100 });
+  const r = svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 1.8, nota: 'subió el vaso' }, ACTOR);
+  near(r.insumo.costo_unitario, 1.8);
 });
 
 test('ajuste_costo deja renglón en el libro de movimientos con el costo nuevo', () => {
   const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 10 });
-  svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_unitario: 3, nota: 'subió el mango' }, ACTOR);
+  svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 3, nota: 'subió el mango' }, ACTOR);
   const m = svc.listMovimientos({ insumoId: i.id })[0];
   assert.equal(m.tipo, 'ajuste_costo');
   assert.equal(m.cantidad_base, 0);
   near(m.costo_unitario, 3, 'costo del renglón');
+  near(m.cantidad_captura, 3, 'guarda el precio tal como se capturó');
   assert.equal(m.stock_resultante, 10);
   assert.match(m.motivo, /Corrección de costo: subió el mango/);
 });
 
 test('ajuste_costo exige un costo mayor a 0', () => {
   const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 1 });
-  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_unitario: 0, nota: 'x' }, ACTOR), /mayor a 0/i);
+  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 0, nota: 'x' }, ACTOR), /mayor a 0/i);
   assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', nota: 'x' }, ACTOR), /mayor a 0/i);
 });
 
 test('ajuste_costo exige motivo', () => {
   const i = svc.createInsumo({ nombre: 'X', unidad_base: 'g', factor_compra: 1, costo_compra: 1, stock_inicial_compra: 1 });
-  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_unitario: 2, nota: '  ' }, ACTOR), /motivo/i);
+  assert.throws(() => svc.registrarMovimiento({ insumoId: i.id, tipo: 'ajuste_costo', costo_compra: 2, nota: '  ' }, ACTOR), /motivo/i);
 });
 
 test('tipo de movimiento no válido lanza error', () => {

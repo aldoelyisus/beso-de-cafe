@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { ACTOR } = require('../helpers/setup');
+const { ACTOR, FOTO_PRUEBA } = require('../helpers/setup');
 const svc = require('../../src/main/services/productoCategoriaService');
 const productoSvc = require('../../src/main/services/productoService');
 
@@ -50,7 +50,7 @@ test('deactivate / activate cambian is_active', () => {
 
 test('deactivate funciona aunque tenga productos', () => {
   const c = svc.createCategoria({ nombre: 'Frappés' });
-  productoSvc.createProducto({ nombre: 'Frappé Oreo', categoria_id: c.id, precio: 80 }, ACTOR);
+  productoSvc.createProducto({ nombre: 'Frappé Oreo', categoria_id: c.id, precio: 80, foto: FOTO_PRUEBA }, ACTOR);
   assert.doesNotThrow(() => svc.deactivateCategoria(c.id));
 });
 
@@ -101,7 +101,7 @@ test('el orden "nombre_desc" es alfabético inverso', () => {
 test('orden por cantidad de productos y conteo correcto', () => {
   const conUno = svc.createCategoria({ nombre: 'Con uno' });
   svc.createCategoria({ nombre: 'Con cero' });
-  productoSvc.createProducto({ nombre: 'P', categoria_id: conUno.id, precio: 10 }, ACTOR);
+  productoSvc.createProducto({ nombre: 'P', categoria_id: conUno.id, precio: 10, foto: FOTO_PRUEBA }, ACTOR);
   const desc = svc.listCategorias({ sort: 'productos_desc', pageSize: 100 }).rows;
   assert.equal(desc[0].nombre, 'Con uno');
   assert.equal(desc[0].producto_count, 1);

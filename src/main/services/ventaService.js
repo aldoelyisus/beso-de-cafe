@@ -14,7 +14,7 @@ function num(v, def = 0) {
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 // ============ Inventario (consumo / devolución) ============
-function moverInventario(db, { insumoId, cantidadBase, tipo, referencia, actor }) {
+function moverInventario(db, { insumoId, cantidadBase, tipo, referencia, motivo, actor }) {
   const insumo = db.prepare('SELECT stock, unidad_base, costo_unitario FROM insumos WHERE id = ?').get(insumoId);
   if (!insumo) return;
   const delta = tipo === 'consumo' ? -Math.abs(cantidadBase) : Math.abs(cantidadBase);
@@ -26,8 +26,12 @@ function moverInventario(db, { insumoId, cantidadBase, tipo, referencia, actor }
        motivo, referencia, stock_resultante, user_id, username)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(insumoId, tipo, delta, Math.abs(cantidadBase), insumo.unidad_base, insumo.costo_unitario,
-    tipo === 'consumo' ? 'Venta' : 'Cancelación de venta', referencia, nuevo,
+    motivo || (tipo === 'consumo' ? 'Venta' : 'Cancelación de venta'), referencia, nuevo,
     actor.id || null, actor.username || '');
+  // Una venta NUNCA se frena por el inventario: el producto existe aunque el
+  // conteo diga que no, y dejar a un cliente sin cobrar cuesta más que el
+  // descuadre. Se devuelve el resultado para poder AVISAR del faltante.
+  return { stock: nuevo, unidad: insumo.unidad_base };
 }
 
 /** Insumos que consume un item, ya resueltos los grupos de opción y el modo (aquí / para llevar). */
@@ -157,7 +161,12 @@ function listHistorial({ page = 1, pageSize = 15, estado = null, search = null }
   });
   for (const r of res.rows) {
     const v = getVenta(r.id);
-    r.total = v.total;
+    r.total = v.total;             // subtotal, antes de la promoción
+    r.descuento = v.descuento;
+    r.total_final = v.total_final; // lo que de verdad se cobró
+    r.promocion_id = v.promocion_id;
+    r.promocion_nombre = v.promocion_nombre;
+    r.pagado = v.pagado;
     r.pagos = v.pagos;
   }
   return res;
@@ -225,6 +234,10 @@ function agregarItem(ventaId, data, actor = {}) {
 
   const consumo = calcularConsumo(pres, paraLlevar, modIds, opcionesMap);
 
+  // Insumos que esta venta deja en negativo: no bloquean, pero se le avisan al
+  // cajero para corregirlo el mismo día y no 45 galletas después.
+  const faltantes = new Map();
+
   const tx = db.transaction(() => {
     for (let n = 0; n < cantidad; n++) {
       const itemId = db.prepare(
@@ -247,13 +260,19 @@ function agregarItem(ventaId, data, actor = {}) {
       for (const c of consumo) {
         const cu = (db.prepare('SELECT costo_unitario FROM insumos WHERE id = ?').get(c.insumo_id) || {}).costo_unitario || 0;
         insCons.run(itemId, c.insumo_id, c.cantidad_base, cu);
-        moverInventario(db, { insumoId: c.insumo_id, cantidadBase: c.cantidad_base, tipo: 'consumo', referencia: `Venta #${ventaId} · item #${itemId}`, actor });
+        const res = moverInventario(db, { insumoId: c.insumo_id, cantidadBase: c.cantidad_base, tipo: 'consumo', referencia: `Venta #${ventaId} · item #${itemId}`, actor });
+        if (res && res.stock < 0) {
+          const nom = (db.prepare('SELECT nombre FROM insumos WHERE id = ?').get(c.insumo_id) || {}).nombre || '';
+          faltantes.set(c.insumo_id, { nombre: nom, stock: res.stock, unidad: res.unidad });
+        }
       }
     }
     recalcularDescuento(db, ventaId);
   });
   tx();
-  return getVenta(ventaId);
+  const v = getVenta(ventaId);
+  v.faltantes = [...faltantes.values()];
+  return v;
 }
 
 function devolverConsumoDeItem(db, itemId, actor) {
@@ -426,9 +445,135 @@ function cancelarVenta(ventaId, motivo, actor = {}) {
   return getVenta(ventaId);
 }
 
+/**
+ * Aplica a UN renglón la diferencia de receta entre "aquí" y "para llevar".
+ *
+ * No se recalcula el consumo entero: se aplica solo la DIFERENCIA entre los dos
+ * modos, así los renglones de modo `siempre` y los modificadores no se tocan.
+ * Devuelve true si además del cambio de marca hubo movimiento de inventario.
+ */
+function ajustarModoItem(db, item, paraLlevar, actor) {
+  db.prepare('UPDATE venta_items SET para_llevar = ? WHERE id = ?').run(paraLlevar, item.id);
+
+  const prod = item.producto_id ? productoService.getProducto(item.producto_id) : null;
+  const pres = prod && prod.presentaciones.find((p) => p.id === item.presentacion_id);
+  if (!pres) return false; // sin receta que consultar: solo queda el cambio de marca
+
+  const modIds = db.prepare('SELECT modificador_id FROM venta_item_modificadores WHERE venta_item_id = ?')
+    .all(item.id).map((r) => r.modificador_id).filter(Boolean);
+
+  // La opción que se eligió en cada grupo quedó guardada en el renglón: se
+  // respeta, para no cambiarle la leche al cliente al pasar la cuenta a llevar.
+  const elegidas = db.prepare('SELECT grupo_nombre, insumo_id FROM venta_item_opciones WHERE venta_item_id = ?').all(item.id);
+  const opcionesMap = {};
+  for (const g of pres.grupos || []) {
+    const e = elegidas.find((x) => x.grupo_nombre === g.nombre);
+    if (e && e.insumo_id) opcionesMap[g.id] = e.insumo_id;
+  }
+
+  const mapa = (pl) => new Map(calcularConsumo(pres, pl, modIds, opcionesMap).map((c) => [c.insumo_id, c.cantidad_base]));
+  const antes = mapa(item.para_llevar ? 1 : 0);
+  const despues = mapa(paraLlevar);
+
+  const referencia = `Cuenta #${item.venta_id} · item #${item.id}`;
+  const motivo = paraLlevar ? 'Pasó a para llevar' : 'Pasó a servir aquí';
+  let hubo = false;
+
+  for (const insumoId of new Set([...antes.keys(), ...despues.keys()])) {
+    const delta = (despues.get(insumoId) || 0) - (antes.get(insumoId) || 0);
+    if (Math.abs(delta) < 1e-9) continue;
+    hubo = true;
+    const fila = db.prepare(
+      'SELECT id, cantidad_base FROM venta_item_consumo WHERE venta_item_id = ? AND insumo_id = ? AND devuelto = 0'
+    ).get(item.id, insumoId);
+
+    if (delta > 0) {
+      // Lo que pide el modo nuevo (el vaso desechable) sale del inventario.
+      moverInventario(db, { insumoId, cantidadBase: delta, tipo: 'consumo', motivo, referencia, actor });
+      if (fila) {
+        db.prepare('UPDATE venta_item_consumo SET cantidad_base = ? WHERE id = ?').run(fila.cantidad_base + delta, fila.id);
+      } else {
+        const cu = (db.prepare('SELECT costo_unitario FROM insumos WHERE id = ?').get(insumoId) || {}).costo_unitario || 0;
+        db.prepare('INSERT INTO venta_item_consumo (venta_item_id, insumo_id, cantidad_base, costo_unitario) VALUES (?, ?, ?, ?)')
+          .run(item.id, insumoId, delta, cu);
+      }
+    } else {
+      // Lo que solo pedía el modo viejo (la taza, el plato) regresa.
+      const devuelto = -delta;
+      moverInventario(db, { insumoId, cantidadBase: devuelto, tipo: 'devolucion', motivo, referencia, actor });
+      if (fila) {
+        const resto = fila.cantidad_base - devuelto;
+        if (resto > 1e-9) db.prepare('UPDATE venta_item_consumo SET cantidad_base = ? WHERE id = ?').run(resto, fila.id);
+        else db.prepare('DELETE FROM venta_item_consumo WHERE id = ?').run(fila.id);
+      }
+    }
+  }
+  return hubo;
+}
+
+/**
+ * Cambia el destino de una cuenta ABIERTA: de mesa a "para llevar", de vuelta a
+ * una mesa, o de una mesa a otra.
+ *
+ * El caso real es el primero: la mesa se tiene que retirar y lo que ya se
+ * preparó se pasa a vasos desechables. No basta con cambiar la bandera, porque
+ * los renglones ya descontaron inventario con la receta de "aquí" (que no gasta
+ * vaso): hay que aplicarles la diferencia. La mesa queda libre en el mapa.
+ */
+function cambiarTipoVenta(ventaId, { tipo, mesaId = null }, actor = {}) {
+  const db = getDb();
+  const venta = db.prepare('SELECT * FROM ventas WHERE id = ?').get(ventaId);
+  if (!venta) throw new Error('La cuenta no existe.');
+  if (venta.estado !== 'abierta') {
+    throw new Error('Esta cuenta ya está cerrada. Solo se puede mover una cuenta abierta.');
+  }
+
+  const nuevoTipo = tipo === 'llevar' ? 'llevar' : 'mesa';
+  let nuevaMesaId = null;
+  if (nuevoTipo === 'mesa') {
+    nuevaMesaId = Number(mesaId) || null;
+    if (!nuevaMesaId) throw new Error('Elige la mesa a la que pasa la cuenta.');
+    const mesa = db.prepare('SELECT id, nombre, is_active FROM mesas WHERE id = ?').get(nuevaMesaId);
+    if (!mesa || !mesa.is_active) throw new Error('La mesa no existe o está dada de baja.');
+    // Una mesa lleva una sola cuenta (cuenta unificada, pregunta 13).
+    const ocupada = db.prepare("SELECT id FROM ventas WHERE mesa_id = ? AND estado = 'abierta' AND id <> ?").get(nuevaMesaId, ventaId);
+    if (ocupada) {
+      throw new Error(`La mesa "${mesa.nombre}" ya tiene abierta la cuenta #${ocupada.id}. Cóbrala primero o elige otra mesa.`);
+    }
+  }
+
+  if (nuevoTipo === venta.tipo && Number(nuevaMesaId || 0) === Number(venta.mesa_id || 0)) {
+    throw new Error(nuevoTipo === 'llevar'
+      ? 'Esta cuenta ya es para llevar.'
+      : 'La cuenta ya está en esa mesa.');
+  }
+
+  // Los renglones se preparan según el destino de la cuenta. Los cancelados no:
+  // ya devolvieron sus insumos y no se van a servir.
+  const paraLlevar = nuevoTipo === 'llevar' ? 1 : 0;
+  const porConvertir = db.prepare(
+    "SELECT * FROM venta_items WHERE venta_id = ? AND estado = 'activo' AND para_llevar <> ? ORDER BY id"
+  ).all(ventaId, paraLlevar);
+
+  const tx = db.transaction(() => {
+    let conMovimiento = 0;
+    for (const it of porConvertir) if (ajustarModoItem(db, it, paraLlevar, actor)) conMovimiento++;
+    db.prepare("UPDATE ventas SET tipo = ?, mesa_id = ? WHERE id = ?")
+      .run(nuevoTipo, nuevoTipo === 'mesa' ? nuevaMesaId : null, ventaId);
+    return conMovimiento;
+  });
+  const conMovimiento = tx();
+
+  const v = getVenta(ventaId);
+  v.items_convertidos = porConvertir.length;
+  v.items_con_movimiento = conMovimiento;
+  v.desde = { tipo: venta.tipo, mesa_id: venta.mesa_id };
+  return v;
+}
+
 module.exports = {
   METODOS,
   getVenta, listVentasAbiertas, listHistorial,
-  abrirVenta, agregarItem, cancelarItem, cobrar, cancelarVenta,
+  abrirVenta, agregarItem, cancelarItem, cobrar, cancelarVenta, cambiarTipoVenta,
   aplicarPromocion, quitarPromocion, listPromocionesAplicables,
 };

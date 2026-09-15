@@ -45,8 +45,12 @@ export async function VentasHistorialView(root) {
     return h('tr', { style: v.estado === 'cancelada' ? 'opacity:.6' : '' },
       h('td', {}, h('strong', {}, '#' + v.id)),
       h('td', {}, v.tipo === 'mesa' ? esc(v.mesa_nombre || 'Mesa') : 'Para llevar'),
-      h('td', {}, money(v.total)),
-      h('td', {}, v.estado === 'pagada' ? `${money(v.total)} · ${metodos}` : '—'),
+      h('td', {}, money(v.total_final),
+        v.descuento > 0
+          ? h('div', { class: 'sub', style: 'font-size:11px;color:var(--ok)' },
+              'promo: ' + esc(v.promocion_nombre || '') + ' −' + money(v.descuento))
+          : null),
+      h('td', {}, v.estado === 'pagada' ? `${money(v.pagado)} · ${metodos}` : '—'),
       h('td', {}, esc(v.closed_at || '')),
       h('td', {}, v.estado === 'pagada'
         ? h('span', { class: 'badge on' }, 'Pagada')
@@ -62,6 +66,10 @@ export async function VentasHistorialView(root) {
 
   async function verDetalle(id) {
     const v = await window.api.ventas.get(id);
+    const conPromo = v.descuento > 0 || !!v.promocion_id;
+    const fila = (izq, der, extra = '') => h('div',
+      { style: 'display:flex;justify-content:space-between;margin-top:6px;' + extra },
+      h('span', {}, izq), h('span', {}, der));
     openModal({
       title: `Venta #${v.id}`,
       wide: true,
@@ -81,8 +89,11 @@ export async function VentasHistorialView(root) {
             h('td', { style: 'text-align:right' }, money(it.total))
           ))
         ))),
-        h('div', { style: 'display:flex;justify-content:space-between;margin-top:10px;font-weight:700' },
-          h('span', {}, 'Total'), h('span', {}, money(v.total))),
+        // Si la venta llevó promoción se desglosa igual que en el ticket del
+        // punto de venta: subtotal, lo que descontó la promo y el total cobrado.
+        conPromo ? fila('Subtotal', money(v.total)) : null,
+        conPromo ? fila('Promo: ' + esc(v.promocion_nombre || 'descuento'), '−' + money(v.descuento), 'color:var(--ok)') : null,
+        fila('Total', money(v.total_final), 'font-weight:700'),
         v.pagos.length ? h('div', { class: 'section-title' }, 'Pagos') : null,
         ...v.pagos.map((p) => h('div', { class: 'pay-row' },
           h('span', { class: 'grow' },

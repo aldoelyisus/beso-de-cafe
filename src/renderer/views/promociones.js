@@ -120,14 +120,21 @@ async function openForm(reload, id, { meta, categorias, productos }) {
     return t === 'monto_fijo' ? [['cuenta', 'A toda la cuenta'], ['productos', 'A ciertos productos']]
       : [['categoria', 'Una categoría'], ['productos', 'Ciertos productos']];
   }
+  // Las opciones de "¿A qué aplica?" dependen del TIPO, así que solo se
+  // reconstruyen cuando cambia el tipo. Antes se reconstruían en cada repintado
+  // —incluido el que dispara el propio desplegable— y la elección volvía a la
+  // primera opción: en una promoción nueva era imposible elegir "Ciertos productos".
+  function rellenarAmbito() {
+    const opciones = ambitoOptions(tipo.value);
+    const antes = ambito.value || (p ? p.ambito : '');
+    ambito.innerHTML = '';
+    for (const [v, l] of opciones) ambito.appendChild(h('option', { value: v }, l));
+    // Se conserva lo elegido si sigue valiendo para este tipo ("Ciertos
+    // productos" existe en los tres); si no, la primera opción.
+    ambito.value = opciones.some(([v]) => v === antes) ? antes : opciones[0][0];
+  }
   function renderDyn() {
     const t = tipo.value;
-    ambito.innerHTML = '';
-    for (const [v, l] of ambitoOptions(t)) {
-      const o = h('option', { value: v }, l);
-      if (p && p.ambito === v) o.selected = true;
-      ambito.appendChild(o);
-    }
     dyn.innerHTML = '';
     if (t === 'dia') dyn.appendChild(field('Día de la semana', diaSemana));
     dyn.appendChild(field('¿A qué aplica?', ambito));
@@ -146,9 +153,10 @@ async function openForm(reload, id, { meta, categorias, productos }) {
       dyn.appendChild(field('Monto a descontar ($)', valor));
     }
   }
-  tipo.addEventListener('change', renderDyn);
+  tipo.addEventListener('change', () => { rellenarAmbito(); renderDyn(); });
   ambito.addEventListener('change', renderDyn);
   valorTipo.addEventListener('change', renderDyn);
+  rellenarAmbito();
   renderDyn();
 
   openModal({

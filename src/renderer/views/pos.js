@@ -6,7 +6,7 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFract
 export async function PosView(root) {
   root.innerHTML = '';
   const [mesas, abiertas] = await Promise.all([
-    window.api.mesas.list({ includeInactive: false }),
+    window.api.ventas.mesas(),
     window.api.ventas.abiertas(),
   ]);
 

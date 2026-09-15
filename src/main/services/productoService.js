@@ -2,7 +2,9 @@
 
 const { getDb } = require('../db/connection');
 const { isModo, MODOS_AQUI, MODOS_PARA_LLEVAR } = require('../menu/constants');
+const { limpiarFoto } = require('../menu/foto');
 const { paginate } = require('./pagination');
+const { buscarChoque } = require('./nombres');
 
 function num(v, def = 0) {
   const n = Number(v);
@@ -78,7 +80,7 @@ function listProductos({
   const res = paginate({
     countSql: `SELECT COUNT(*) AS n FROM productos p WHERE ${whereSql}`,
     rowsSql: `
-      SELECT p.id, p.nombre, p.descripcion, p.agotado, p.is_active, p.categoria_id,
+      SELECT p.id, p.nombre, p.descripcion, p.agotado, p.is_active, p.categoria_id, p.foto,
              c.nombre AS categoria_nombre,
              (SELECT COUNT(*) FROM producto_presentaciones pr WHERE pr.producto_id = p.id AND pr.is_active = 1) AS num_presentaciones,
              ${precioSub('MIN')} AS precio_min,
@@ -108,7 +110,7 @@ function listOptions() {
   // productos activos con sus presentaciones activas y precio actual (para ventas / promos)
   const db = getDb();
   const productos = db.prepare(
-    `SELECT p.id, p.nombre, p.agotado, c.nombre AS categoria_nombre
+    `SELECT p.id, p.nombre, p.agotado, p.foto, c.nombre AS categoria_nombre
      FROM productos p LEFT JOIN producto_categorias c ON c.id = p.categoria_id
      WHERE p.is_active = 1 ORDER BY p.nombre`
   ).all();
@@ -182,7 +184,16 @@ function createProducto(data, actor = {}) {
   const db = getDb();
   const nombre = String(data.nombre || '').trim();
   if (!nombre) throw new Error('El nombre del producto es obligatorio.');
+  if (buscarChoque(db.prepare('SELECT id, nombre FROM productos').all(), nombre)) {
+    throw new Error('Ya existe un producto con ese nombre.');
+  }
+  // La foto es obligatoria al dar de alta: en el punto de venta el producto se
+  // reconoce por su imagen, no leyendo el nombre.
+  const foto = limpiarFoto(data.foto, { obligatoria: true });
   const categoriaId = data.categoria_id ? Number(data.categoria_id) : null;
+  if (categoriaId && !db.prepare('SELECT id FROM producto_categorias WHERE id = ?').get(categoriaId)) {
+    throw new Error('La categoría seleccionada no existe.');
+  }
 
   const presentaciones = Array.isArray(data.presentaciones) && data.presentaciones.length
     ? data.presentaciones
@@ -197,8 +208,8 @@ function createProducto(data, actor = {}) {
 
   const tx = db.transaction(() => {
     const info = db.prepare(
-      'INSERT INTO productos (nombre, categoria_id, descripcion) VALUES (?, ?, ?)'
-    ).run(nombre, categoriaId, String(data.descripcion || ''));
+      'INSERT INTO productos (nombre, categoria_id, descripcion, foto) VALUES (?, ?, ?, ?)'
+    ).run(nombre, categoriaId, String(data.descripcion || ''), foto);
     const productoId = info.lastInsertRowid;
 
     const insPres = db.prepare('INSERT INTO producto_presentaciones (producto_id, nombre, orden) VALUES (?, ?, ?)');
@@ -223,11 +234,30 @@ function createProducto(data, actor = {}) {
 function updateProducto(id, data) {
   const db = getDb();
   if (!db.prepare('SELECT id FROM productos WHERE id = ?').get(id)) throw new Error('El producto no existe.');
+
+  if (data.nombre != null && String(data.nombre).trim()) {
+    if (buscarChoque(db.prepare('SELECT id, nombre FROM productos').all(), String(data.nombre).trim(), Number(id))) {
+      throw new Error('Ya existe un producto con ese nombre.');
+    }
+  }
+  if (data.categoria_id) {
+    if (!db.prepare('SELECT id FROM producto_categorias WHERE id = ?').get(Number(data.categoria_id))) {
+      throw new Error('La categoría seleccionada no existe.');
+    }
+  }
+  // Al editar, mandar `foto` la reemplaza; no mandarla deja la que ya tenía.
+  // Lo que no se admite es dejar al producto SIN foto.
+  let foto = null;
+  if (data.foto !== undefined) {
+    foto = limpiarFoto(data.foto, { obligatoria: true });
+  }
+
   db.prepare(
     `UPDATE productos SET
        nombre = COALESCE(@nombre, nombre),
        categoria_id = @categoria_id,
        descripcion = COALESCE(@descripcion, descripcion),
+       foto = COALESCE(@foto, foto),
        updated_at = datetime('now')
      WHERE id = @id`
   ).run({
@@ -235,6 +265,7 @@ function updateProducto(id, data) {
     nombre: data.nombre != null ? String(data.nombre).trim() : null,
     categoria_id: data.categoria_id !== undefined ? (data.categoria_id ? Number(data.categoria_id) : null) : db.prepare('SELECT categoria_id FROM productos WHERE id = ?').get(id).categoria_id,
     descripcion: data.descripcion != null ? String(data.descripcion) : null,
+    foto,
   });
   return getProducto(id);
 }

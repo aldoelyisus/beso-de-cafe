@@ -24,9 +24,16 @@ export async function InsumosView(root) {
   const head = h('div', { class: 'page-head' },
     h('div', {},
       h('h2', {}, 'Insumos'),
-      h('div', { class: 'muted' }, meta.bajoStock > 0
-        ? `⚠ ${meta.bajoStock} insumo(s) por acabarse`
-        : 'Ingredientes y materiales con su existencia y costo.')
+      // El faltante (existencia negativa) es un problema distinto a "por
+      // acabarse" y se avisa aparte: ahí salió mercancía sin registrar.
+      h('div', { class: 'muted' },
+        meta.faltantes
+          ? h('span', { class: 'aviso-faltante' }, `⛔ ${meta.faltantes} insumo(s) con faltante`)
+          : null,
+        meta.faltantes && meta.bajoStock ? ' · ' : null,
+        meta.bajoStock
+          ? `⚠ ${meta.bajoStock} insumo(s) por acabarse`
+          : (meta.faltantes ? '' : 'Ingredientes y materiales con su existencia y costo.'))
     ),
     can('insumos.create')
       ? h('button', { class: 'btn', onclick: () => openInsumoModal(root, null, cats, unidades) }, '+ Nuevo insumo')
@@ -112,7 +119,9 @@ export async function InsumosView(root) {
     const stockCell = h('td', {},
       h('strong', {}, fmt(i.stock) + ' '),
       h('span', { class: 'muted' }, i.unidad_base),
-      i.bajo_stock && i.is_active ? h('span', { class: 'badge off', style: 'margin-left:8px' }, 'Bajo') : null
+      i.faltante && i.is_active
+        ? h('span', { class: 'badge faltante', style: 'margin-left:8px' }, `Faltan ${fmt(Math.abs(i.stock))}`)
+        : (i.bajo_stock && i.is_active ? h('span', { class: 'badge off', style: 'margin-left:8px' }, 'Bajo') : null)
     );
 
     return h('tr', { style: i.is_active ? '' : 'opacity:.55' },
@@ -304,7 +313,20 @@ async function openMovimientosModal(root, id) {
   const costoCompra = h('input', { type: 'number', min: '0', step: 'any', value: insumo.costo_compra });
   const proveedor = h('input', { type: 'text', value: '', placeholder: 'Bodega, frutería del mercado…' });
   const conteo = h('input', { type: 'number', min: '0', step: 'any', value: '' });
-  const nuevoCosto = h('input', { type: 'number', min: '0', step: 'any', value: insumo.costo_unitario });
+  // Corregir costo: se escribe el precio de la presentación (el kilo, el paquete),
+  // igual que en una entrada, y aquí mismo se ve en qué queda por unidad base.
+  const presentacion = insumo.unidad_compra || insumo.unidad_base;
+  const nuevoCosto = h('input', { type: 'number', min: '0', step: 'any', value: insumo.costo_compra });
+  const nuevoCostoInfo = h('div', { class: 'hint' });
+  function syncNuevoCosto() {
+    const v = Number(nuevoCosto.value);
+    const f = insumo.factor_compra > 0 ? insumo.factor_compra : 1;
+    nuevoCostoInfo.textContent = v > 0
+      ? `Queda en ${money(v / f, 4)} por ${insumo.unidad_base} (antes ${money(insumo.costo_unitario, 4)}). `
+        + 'No cambia la existencia y solo aplica a las ventas de aquí en adelante.'
+      : `Escribe cuánto cuesta ahora 1 ${presentacion}.`;
+  }
+  nuevoCosto.addEventListener('input', syncNuevoCosto);
   const motivo = h('select', {}, ...meta.motivosMerma.map((m) => h('option', { value: m.key }, m.label)));
   const nota = h('input', { type: 'text', value: '' });
 
@@ -318,9 +340,13 @@ async function openMovimientosModal(root, id) {
         field('Tienda / proveedor', proveedor, 'Opcional — dónde lo compraste esta vez')
       );
     } else if (tipo.value === 'ajuste_costo') {
+      syncNuevoCosto();
       dynFields.append(
-        field(`Nuevo costo por ${insumo.unidad_base}`, nuevoCosto,
-          `Costo actual: ${money(insumo.costo_unitario, 4)} /${insumo.unidad_base}. No cambia la existencia y solo aplica a las ventas de aquí en adelante.`),
+        field(`Nuevo precio por ${presentacion}`, nuevoCosto,
+          insumo.factor_compra > 1
+            ? `Lo que cuesta ahora 1 ${presentacion} completo (${fmt(insumo.factor_compra, 3)} ${insumo.unidad_base}). Precio actual: ${money(insumo.costo_compra)}.`
+            : `Lo que cuesta ahora 1 ${presentacion}. Precio actual: ${money(insumo.costo_compra)}.`),
+        nuevoCostoInfo,
         field('Motivo', nota, 'Obligatorio — por qué se corrige')
       );
     } else if (tipo.value === 'merma') {
@@ -355,7 +381,11 @@ async function openMovimientosModal(root, id) {
             h('td', {}, h('span', { class: 'badge ' + (esCosto ? 'inherit' : m.cantidad_base >= 0 ? 'on' : 'off') },
               esCosto ? 'costo' : m.tipo)),
             h('td', {}, esCosto
-              ? money(m.costo_unitario, 4) + ' /' + insumo.unidad_base
+              // Los renglones viejos guardaban el costo por unidad base ("$/g");
+              // los nuevos, el precio de la presentación ("Kilo").
+              ? (String(m.unidad_captura || '').startsWith('$/')
+                  ? money(m.costo_unitario, 4) + ' /' + insumo.unidad_base
+                  : `${money(m.cantidad_captura)} /${esc(m.unidad_captura)} · ${money(m.costo_unitario, 4)} /${insumo.unidad_base}`)
               : (m.cantidad_base >= 0 ? '+' : '') + fmt(m.cantidad_base) + ' ' + insumo.unidad_base),
             h('td', {}, esCosto ? h('span', { class: 'muted' }, 'sin cambio') : fmt(m.stock_resultante) + ' ' + insumo.unidad_base),
             h('td', {}, esc(m.motivo || '—'),
@@ -395,7 +425,13 @@ async function openMovimientosModal(root, id) {
               toast('Costo corregido', 'ok');
             } else {
               const payload = { insumoId: id, tipo: tipo.value };
-              if (tipo.value === 'entrada') { payload.cantidad = Number(cantidad.value); payload.costo_compra = Number(costoCompra.value); payload.proveedor = proveedor.value.trim(); }
+              if (tipo.value === 'entrada') {
+                payload.cantidad = cantidad.value;
+                payload.proveedor = proveedor.value.trim();
+                // Campo vacío = "no sé / el de siempre": se conserva el último
+                // costo. Un 0 capturado a propósito sí baja el promedio.
+                if (costoCompra.value.trim() !== '') payload.costo_compra = costoCompra.value;
+              }
               else if (tipo.value === 'merma') { payload.cantidad = Number(cantidad.value); payload.motivo = motivo.value; payload.nota = nota.value.trim(); }
               else { payload.conteo = Number(conteo.value); payload.nota = nota.value.trim(); }
               updated = await window.api.insumos.movimiento(payload);

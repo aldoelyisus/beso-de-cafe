@@ -40,6 +40,11 @@ function handle(channel, opts, fn) {
       if (!opts.guest && !session.isLoggedIn()) {
         throw new Error('Sesión no iniciada.');
       }
+      // Si desactivan al usuario mientras tiene la sesión abierta, deja de operar aquí mismo.
+      if (!opts.guest && !authService.sessionUserStillActive()) {
+        session.clear();
+        throw new Error('Tu usuario fue desactivado. Vuelve a iniciar sesión.');
+      }
       if (opts.permission && !session.can(opts.permission)) {
         throw new Error('No tienes permiso para realizar esta acción.');
       }
@@ -49,6 +54,15 @@ function handle(channel, opts, fn) {
       return { ok: false, error: err.message || String(err) };
     }
   });
+}
+
+/**
+ * Para los canales que solo alimentan un desplegable y los usa más de un módulo
+ * (el editor de recetas necesita los insumos, el de promociones las categorías…).
+ * Evita que una pantalla muera por pedir el permiso de un módulo vecino.
+ */
+function canAlguno(...claves) {
+  return claves.some((k) => session.can(k));
 }
 
 /** Usuario de la sesión actual, como { id, username }, para atribuir registros. */
@@ -101,12 +115,17 @@ function registerIpc() {
   handle('logs:actions', { permission: 'logs.view' }, () => logService.listActions());
 
   // ---- Usuarios ----
-  handle('users:list', { permission: 'users.list' }, ({ includeInactive = true }) =>
+  handle('users:list', { permission: 'users.view' }, ({ includeInactive = true }) =>
     userService.listUsers({ includeInactive })
   );
-  handle('users:get', { permission: 'users.list' }, ({ id }) => userService.getUser(id));
+  handle('users:get', { permission: 'users.view' }, ({ id }) => userService.getUser(id));
 
   handle('users:create', { permission: 'users.create' }, (data) => {
+    // Repartir permisos sueltos al dar de alta también exige "users.permissions":
+    // si no, "users.create" bastaría para fabricarse un administrador.
+    if (Array.isArray(data.extraPermissions) && data.extraPermissions.length && !session.can('users.permissions')) {
+      throw new Error('No tienes permiso para asignar permisos individuales.');
+    }
     const user = userService.createUser(data);
     const roleTxt = user.role_name ? ` con rol "${user.role_name}"` : ' sin rol';
     audit('users.create', `Creó al usuario "${user.name}" (@${user.username}, id ${user.id})${roleTxt}`);
@@ -154,8 +173,13 @@ function registerIpc() {
     return user;
   });
 
-  handle('users:setPermissions', { permission: 'users.edit' }, ({ id, permissions }) => {
+  handle('users:setPermissions', { permission: 'users.permissions' }, ({ id, permissions }) => {
+    const yo = session.getCurrentUser();
+    if (yo && Number(id) === Number(yo.id)) {
+      throw new Error('No puedes cambiar tus propios permisos. Pídeselo a otro administrador.');
+    }
     const before = userService.getUser(id);
+    if (!before) throw new Error('El usuario no existe.');
     const beforeKeys = before.permissions.map((p) => p.permission_key);
     const user = userService.setUserPermissions(id, permissions);
     const d = diff(beforeKeys, user.permissions.map((p) => p.permission_key));
@@ -167,13 +191,17 @@ function registerIpc() {
   });
 
   // ---- Inventario: metadatos y categorías ----
+  // Las unidades y los motivos de merma son catálogos fijos, sin información de
+  // negocio. El conteo de "por acabarse" sí lo es: solo va para quien puede ver
+  // el inventario (si no, quien únicamente vende sabría cómo anda el almacén).
   handle('inventory:meta', () => ({
     unidades: UNITS,
     motivosMerma: MERMA_MOTIVOS,
-    bajoStock: insumoService.countBajoStock(),
+    bajoStock: session.can('insumos.view') ? insumoService.countBajoStock() : null,
+    faltantes: session.can('insumos.view') ? insumoService.countFaltantes() : null,
   }));
 
-  handle('insumoCategorias:list', { permission: 'insumo_categorias.list' }, (opts) =>
+  handle('insumoCategorias:list', { permission: 'insumo_categorias.view' }, (opts) =>
     categoriaService.listCategorias(opts || {})
   );
   handle('insumoCategorias:options', { permission: 'insumos.view' }, () =>
@@ -201,10 +229,17 @@ function registerIpc() {
   });
 
   // ---- Inventario: insumos ----
-  handle('insumos:list', { permission: 'insumos.list' }, (opts) => insumoService.listInsumos(opts || {}));
-  handle('insumos:options', () => insumoService.listInsumoOptions());
-  handle('insumos:get', { permission: 'insumos.list' }, ({ id }) => insumoService.getInsumo(id));
-  handle('insumos:movimientos', { permission: 'insumos.list' }, ({ id, limit }) =>
+  handle('insumos:list', { permission: 'insumos.view' }, (opts) => insumoService.listInsumos(opts || {}));
+  // Trae el costo de cada insumo: solo para quien administra inventario o menú,
+  // no para quien únicamente vende.
+  handle('insumos:options', () => {
+    if (!canAlguno('insumos.view', 'productos.view', 'modificadores.view')) {
+      throw new Error('No tienes permiso para realizar esta acción.');
+    }
+    return insumoService.listInsumoOptions();
+  });
+  handle('insumos:get', { permission: 'insumos.view' }, ({ id }) => insumoService.getInsumo(id));
+  handle('insumos:movimientos', { permission: 'insumos.view' }, ({ id, limit }) =>
     insumoService.listMovimientos({ insumoId: id, limit })
   );
 
@@ -244,13 +279,15 @@ function registerIpc() {
     return insumo;
   });
 
-  handle('insumos:corregirCosto', { permission: 'insumos.costo' }, ({ id, costo_unitario, nota }) => {
+  handle('insumos:corregirCosto', { permission: 'insumos.costo' }, ({ id, costo_compra, nota }) => {
     const previo = insumoService.getInsumo(id);
     if (!previo) throw new Error('El insumo no existe.');
     const { insumo } = insumoService.registrarMovimiento(
-      { insumoId: id, tipo: 'ajuste_costo', costo_unitario, nota }, actor());
+      { insumoId: id, tipo: 'ajuste_costo', costo_compra, nota }, actor());
+    const pres = insumo.unidad_compra || insumo.unidad_base;
     audit('inventory.costo.ajuste',
-      `Corrigió el costo de "${insumo.nombre}": ${previo.costo_unitario} → ${insumo.costo_unitario} $/${insumo.unidad_base}` +
+      `Corrigió el costo de "${insumo.nombre}": ${pres} $${previo.costo_compra} → $${insumo.costo_compra} ` +
+      `(${previo.costo_unitario} → ${insumo.costo_unitario} $/${insumo.unidad_base})` +
       (nota ? ` — ${String(nota).trim()}` : ''));
     return insumo;
   });
@@ -259,12 +296,17 @@ function registerIpc() {
   handle('menu:meta', () => ({ modosReceta: MODOS_RECETA }));
 
   // ---- Menú: categorías de productos ----
-  handle('productoCategorias:list', { permission: 'producto_categorias.list' }, (opts) =>
+  handle('productoCategorias:list', { permission: 'producto_categorias.view' }, (opts) =>
     productoCategoriaService.listCategorias(opts || {})
   );
-  handle('productoCategorias:options', { permission: 'productos.view' }, () =>
-    productoCategoriaService.listOptions()
-  );
+  // La usan Productos, Promociones y Categorías: pedir el permiso de un solo
+  // módulo dejaba muerta la pantalla de los otros.
+  handle('productoCategorias:options', () => {
+    if (!canAlguno('productos.view', 'promociones.view', 'producto_categorias.view')) {
+      throw new Error('No tienes permiso para realizar esta acción.');
+    }
+    return productoCategoriaService.listOptions();
+  });
   handle('productoCategorias:create', { permission: 'producto_categorias.create' }, (data) => {
     const c = productoCategoriaService.createCategoria(data);
     audit('menu.categoria.create', `Creó la categoría de producto "${c.nombre}"`);
@@ -287,10 +329,10 @@ function registerIpc() {
   });
 
   // ---- Menú: modificadores ----
-  handle('modificadores:list', { permission: 'modificadores.list' }, (opts) =>
+  handle('modificadores:list', { permission: 'modificadores.view' }, (opts) =>
     modificadorService.listModificadores(opts || {})
   );
-  handle('modificadores:get', { permission: 'modificadores.list' }, ({ id }) => modificadorService.getModificador(id));
+  handle('modificadores:get', { permission: 'modificadores.view' }, ({ id }) => modificadorService.getModificador(id));
   handle('modificadores:options', { permission: 'productos.view' }, () => modificadorService.listOptions());
   handle('modificadores:create', { permission: 'modificadores.create' }, (data) => {
     const m = modificadorService.createModificador(data);
@@ -319,10 +361,10 @@ function registerIpc() {
   });
 
   // ---- Menú: productos ----
-  handle('productos:list', { permission: 'productos.list' }, (opts) => productoService.listProductos(opts || {}));
+  handle('productos:list', { permission: 'productos.view' }, (opts) => productoService.listProductos(opts || {}));
   handle('productos:catalogo', () => productoService.listOptions()); // productos activos con tamaños + precio (para promos / ventas)
-  handle('productos:get', { permission: 'productos.list' }, ({ id }) => productoService.getProducto(id));
-  handle('productos:historialPrecios', { permission: 'productos.list' }, ({ presentacionId }) =>
+  handle('productos:get', { permission: 'productos.view' }, ({ id }) => productoService.getProducto(id));
+  handle('productos:historialPrecios', { permission: 'productos.view' }, ({ presentacionId }) =>
     productoService.historialPrecios(presentacionId)
   );
 
@@ -335,7 +377,9 @@ function registerIpc() {
   });
   handle('productos:update', { permission: 'productos.edit' }, ({ id, ...data }) => {
     const p = productoService.updateProducto(id, data);
-    audit('menu.producto.update', `Editó el producto "${p.nombre}" (id ${id})`);
+    // La foto es un data URI larguísimo: en la bitácora solo se anota que cambió.
+    const cambioFoto = data.foto !== undefined ? '. Cambió la foto' : '';
+    audit('menu.producto.update', `Editó el producto "${p.nombre}" (id ${id})${cambioFoto}`);
     return p;
   });
   handle('productos:setAgotado', { permission: 'productos.edit' }, ({ id, agotado }) => {
@@ -438,6 +482,9 @@ function registerIpc() {
   handle('ventas:get', { permission: 'ventas.view' }, ({ id }) => ventaService.getVenta(id));
   handle('ventas:historial', { permission: 'ventas.list' }, (opts) => ventaService.listHistorial(opts || {}));
   handle('ventas:catalogoProductos', { permission: 'ventas.view' }, () => productoService.listOptions());
+  // El mapa de mesas es parte de VENDER, no de configurar mesas: si esto pidiera
+  // "mesas.view", un cajero no podría ni abrir el punto de venta.
+  handle('ventas:mesas', { permission: 'ventas.view' }, () => mesaService.listMesas({ includeInactive: false }));
   handle('ventas:producto', { permission: 'ventas.view' }, ({ id }) => {
     const p = productoService.getProducto(id);
     if (!p) return null;
@@ -466,6 +513,18 @@ function registerIpc() {
     return v;
   });
 
+  handle('ventas:cambiarTipo', { permission: 'ventas.crear' }, ({ ventaId, tipo, mesaId }) => {
+    const v = ventaService.cambiarTipoVenta(ventaId, { tipo, mesaId }, actor());
+    const de = v.desde.tipo === 'mesa' ? `mesa ${v.desde.mesa_id}` : 'para llevar';
+    const a = v.tipo === 'mesa' ? `mesa "${v.mesa_nombre}"` : 'para llevar';
+    const ajuste = v.items_convertidos
+      ? ` — ${v.items_convertidos} producto(s) se pasaron al modo nuevo` +
+        (v.items_con_movimiento ? ` y ${v.items_con_movimiento} ajustaron inventario (vasos)` : '')
+      : '';
+    audit('ventas.cambiarTipo', `Cuenta #${ventaId}: de ${de} a ${a}${ajuste}`);
+    return v;
+  });
+
   handle('ventas:cancelarItem', { permission: 'ventas.cancelar' }, ({ ventaId, itemId, motivo }) => {
     const v = ventaService.cancelarItem(ventaId, itemId, motivo, actor());
     audit('ventas.item.cancel', `Cuenta #${ventaId}: canceló el producto #${itemId} (insumos devueltos)` + (motivo ? ` — ${motivo}` : ''));
@@ -483,8 +542,8 @@ function registerIpc() {
 
   // ---- Promociones ----
   handle('promociones:meta', { permission: 'promociones.view' }, () => ({ tipos: promocionService.TIPOS, dias: promocionService.DIAS, hoy: promocionService.hoyISO() }));
-  handle('promociones:list', { permission: 'promociones.list' }, (opts) => promocionService.listPromociones(opts || {}));
-  handle('promociones:get', { permission: 'promociones.list' }, ({ id }) => promocionService.getPromocion(id));
+  handle('promociones:list', { permission: 'promociones.view' }, (opts) => promocionService.listPromociones(opts || {}));
+  handle('promociones:get', { permission: 'promociones.view' }, ({ id }) => promocionService.getPromocion(id));
   handle('promociones:create', { permission: 'promociones.create' }, (data) => {
     const p = promocionService.createPromocion(data);
     audit('promo.create', `Creó la promoción "${p.nombre}" (${p.tipo}, ${p.fecha_inicio} a ${p.fecha_fin})`);
@@ -579,8 +638,8 @@ function registerIpc() {
   });
 
   // ---- Roles ----
-  handle('roles:list', { permission: 'roles.list' }, () => roleService.listRoles());
-  handle('roles:get', { permission: 'roles.list' }, ({ id }) => roleService.getRole(id));
+  handle('roles:list', { permission: 'roles.view' }, () => roleService.listRoles());
+  handle('roles:get', { permission: 'roles.view' }, ({ id }) => roleService.getRole(id));
 
   handle('roles:create', { permission: 'roles.create' }, (data) => {
     const role = roleService.createRole(data);

@@ -2,6 +2,7 @@
 
 const { getDb } = require('../db/connection');
 const { hashPassword } = require('../security/password');
+const { buscarChoque } = require('./nombres');
 
 const PUBLIC_COLUMNS = `
   u.id, u.name, u.username, u.role_id, u.phone,
@@ -45,9 +46,15 @@ function getUser(id) {
   return user;
 }
 
+/**
+ * El nombre de usuario es único "como lo lee una persona": "Lupita", "LUPITA" y
+ * "lupita" son la misma cuenta (ver `nombres.js`; migración 013 es la red).
+ */
 function assertUsernameFree(db, username, exceptId = null) {
-  const row = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-  if (row && row.id !== exceptId) throw new Error('Ese nombre de usuario ya está en uso.');
+  const filas = db.prepare('SELECT id, username AS nombre FROM users').all();
+  if (buscarChoque(filas, username, exceptId)) {
+    throw new Error('Ese nombre de usuario ya está en uso.');
+  }
 }
 
 function copyRolePermissions(db, userId, roleId) {

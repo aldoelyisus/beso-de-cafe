@@ -1,0 +1,13 @@
+-- Foto del producto.
+--
+-- El punto de venta se usa "de un vistazo": el cajero reconoce el frappé por su
+-- foto, no leyendo nombres. Por eso la foto es obligatoria al dar de alta.
+--
+-- Se guarda dentro de la base como data URI (data:image/jpeg;base64,...) y no
+-- como ruta a un archivo, por dos razones: la aplicación es offline y de un solo
+-- equipo, y el respaldo de FASE 12 copia un único archivo .db — si las fotos
+-- vivieran fuera, un respaldo restaurado se quedaría sin ellas.
+--
+-- La interfaz redimensiona la imagen antes de mandarla (máx. 640 px, JPEG), así
+-- que cada foto pesa decenas de KB, no megas. El servicio valida formato y tamaño.
+ALTER TABLE productos ADD COLUMN foto TEXT NOT NULL DEFAULT '';

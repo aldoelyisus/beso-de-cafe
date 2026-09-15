@@ -1,6 +1,7 @@
 import { h, esc, toast, openModal, confirmDialog, field } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 import { RecetaEditor } from '../components/recetaEditor.js';
+import { ImagePicker } from '../components/imagePicker.js';
 
 const money = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
@@ -56,6 +57,7 @@ export async function ProductoEditorView(root, idParam) {
       o.selected = true; categoria.appendChild(o);
     }
     const descripcion = h('input', { type: 'text', value: producto.descripcion });
+    const foto = ImagePicker({ valor: producto.foto, etiqueta: producto.foto ? 'Cambiar foto…' : 'Elegir foto…' });
 
     const modChecks = modificadores.map((m) => {
       const cb = h('input', { type: 'checkbox', value: String(m.id) });
@@ -85,12 +87,18 @@ export async function ProductoEditorView(root, idParam) {
         field('Categoría', categoria)
       ),
       field('Descripción', descripcion),
+      h('div', { class: 'section-title' }, 'Foto'),
+      editable ? foto.element : h('div', { class: 'foto-vista' },
+        producto.foto ? h('img', { src: producto.foto, alt: '' }) : h('div', { class: 'foto-vacia' }, '📷')),
       modChecks.length ? h('div', { class: 'section-title' }, 'Modificadores que admite') : null,
       ...modChecks.map((c) => c.el),
       editable ? h('div', { style: 'margin-top:12px' }, h('button', {
         class: 'btn', onclick: async () => {
           try {
-            await window.api.productos.update(id, { nombre: nombre.value.trim(), categoria_id: categoria.value || null, descripcion: descripcion.value.trim() });
+            const datos = { nombre: nombre.value.trim(), categoria_id: categoria.value || null, descripcion: descripcion.value.trim() };
+            // Solo se manda la foto si cambió: así no viaja el data URI en cada guardado.
+            if (foto.getDataUrl() !== producto.foto) datos.foto = foto.getDataUrl();
+            await window.api.productos.update(id, datos);
             await window.api.productos.setModificadores(id, modChecks.filter((c) => c.cb.checked).map((c) => Number(c.m.id)));
             toast('Datos guardados', 'ok');
             refresh();
