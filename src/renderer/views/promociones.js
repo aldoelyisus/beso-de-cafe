@@ -1,7 +1,7 @@
 import { h, esc, toast, confirmDialog, openModal, field } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 import { Pager } from '../components/pager.js';
-import { SearchBox, Segmented } from '../components/filters.js';
+import { SearchBox, Segmented, ChipRow } from '../components/filters.js';
 
 const PAGE_SIZE = 15;
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -109,11 +109,70 @@ async function openForm(reload, id, { meta, categorias, productos }) {
   if (p && p.valor_tipo === 'porcentaje') valorTipo.value = 'porcentaje';
   const valor = h('input', { type: 'number', min: '0', step: 'any', value: p ? p.valor : '' });
 
+  // Selector de "Ciertos productos": con pocos productos una lista simple
+  // basta, pero con 20+ hay que poder buscar, filtrar por categoría y marcar
+  // varios de golpe (si no, el usuario se pierde haciendo scroll uno por uno).
+  const pickerFiltro = { texto: '', categoria: '' };
   const prodChecks = productos.map((pr) => {
     const cb = h('input', { type: 'checkbox', value: String(pr.id) });
     if (p && p.productos.some((x) => x.producto_id === pr.id)) cb.checked = true;
+    cb.addEventListener('change', () => actualizarContadorProductos());
     return { pr, cb, el: h('label', { class: 'perm-check' }, cb, h('span', {}, `${esc(pr.nombre)}${pr.categoria_nombre ? ' · ' + esc(pr.categoria_nombre) : ''}`)) };
   });
+  const categoriasProductos = [...new Set(productos.map((pr) => pr.categoria_nombre || 'Otros'))];
+  const contadorProductos = h('span', { class: 'muted', style: 'font-size:12px' }, '');
+  function actualizarContadorProductos() {
+    const n = prodChecks.filter((c) => c.cb.checked).length;
+    contadorProductos.textContent = n === 1 ? '1 producto elegido' : `${n} productos elegidos`;
+  }
+  function coincideProducto(c) {
+    if (pickerFiltro.categoria && (c.pr.categoria_nombre || 'Otros') !== pickerFiltro.categoria) return false;
+    if (!pickerFiltro.texto) return true;
+    const t = pickerFiltro.texto.toLocaleLowerCase('es');
+    return `${c.pr.nombre} ${c.pr.categoria_nombre || ''}`.toLocaleLowerCase('es').includes(t);
+  }
+  const sinResultadosProductos = h('div', { class: 'empty', style: 'display:none' }, 'Ningún producto coincide con la búsqueda.');
+  function pintarProductosVisibles() {
+    // Nota: .perm-check trae su propio "display: flex", que en la cascada le
+    // gana al [hidden] del navegador (misma especificidad, gana la regla de
+    // autor) — por eso se oculta con style.display y no con el atributo hidden.
+    let visibles = 0;
+    for (const c of prodChecks) {
+      const vis = coincideProducto(c);
+      c.el.style.display = vis ? '' : 'none';
+      if (vis) visibles++;
+    }
+    sinResultadosProductos.style.display = visibles ? 'none' : '';
+  }
+  const listaProductos = h('div', { class: 'prod-picker-list' }, ...prodChecks.map((c) => c.el), sinResultadosProductos);
+  function productosPickerEl() {
+    pintarProductosVisibles();
+    actualizarContadorProductos();
+    return h('div', {},
+      h('div', { class: 'cat-barra' },
+        SearchBox('Buscar producto…', (v) => { pickerFiltro.texto = v; pintarProductosVisibles(); }, { delay: 120, value: pickerFiltro.texto }),
+        ChipRow(
+          [{ value: '', label: `Todas (${productos.length})` },
+           ...categoriasProductos.map((cat) => ({ value: cat, label: `${cat} (${productos.filter((pr) => (pr.categoria_nombre || 'Otros') === cat).length})` }))],
+          pickerFiltro.categoria,
+          (v) => { pickerFiltro.categoria = v; pintarProductosVisibles(); }
+        )
+      ),
+      h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;margin:8px 0' },
+        contadorProductos,
+        h('div', {},
+          h('button', {
+            type: 'button', class: 'btn small secondary',
+            onclick: () => { for (const c of prodChecks) if (coincideProducto(c)) c.cb.checked = true; actualizarContadorProductos(); },
+          }, 'Marcar los visibles'),
+          h('button', {
+            type: 'button', class: 'btn ghost small', style: 'margin-left:6px',
+            onclick: () => { for (const c of prodChecks) c.cb.checked = false; actualizarContadorProductos(); },
+          }, 'Vaciar selección'))
+      ),
+      listaProductos
+    );
+  }
 
   const dyn = h('div', {});
   function ambitoOptions(t) {
@@ -141,7 +200,7 @@ async function openForm(reload, id, { meta, categorias, productos }) {
     if (ambito.value === 'categoria') dyn.appendChild(field('Categoría', categoria));
     if (ambito.value === 'productos') {
       dyn.appendChild(h('div', { class: 'section-title' }, 'Productos de la promoción'));
-      prodChecks.forEach((c) => dyn.appendChild(c.el));
+      dyn.appendChild(productosPickerEl());
     }
     if (t === 'combo') {
       if (ambito.value === 'categoria') dyn.appendChild(field('¿Cuántos productos?', cantidad, 'Ej. 2 frappés de cualquier sabor'));

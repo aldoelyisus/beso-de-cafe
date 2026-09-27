@@ -205,6 +205,14 @@ tbody tr:hover { background: var(--surface-2); }
 .perm-check { display: flex; align-items: center; gap: 9px; padding: 6px 0 6px 26px; font-size: 13px; }
 .perm-check input { width: 16px; height: 16px; }
 
+.prod-picker-list {
+  max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 4px 10px;
+}
+.prod-picker-list .perm-check { border-bottom: 1px solid var(--line); }
+.prod-picker-list .perm-check:last-child { border-bottom: none; }
+
 .perm-allbar {
   display: flex; align-items: center; gap: 9px;
   padding: 4px 0 12px; margin-bottom: 8px;
