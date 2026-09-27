@@ -382,17 +382,34 @@ los productos cancelados no suman.
 
 ---
 
-## FASE 12 — Respaldos y resistencia a fallos
+## FASE 12 — Respaldos y resistencia a fallos  ✅ HECHO
 *(Documento §2)*
 
-- [ ] Respaldo **automático y local** del archivo SQLite (carpeta aparte + rotación)
-- [ ] Respaldo manual "hacer copia ahora"
-- [ ] Restaurar desde un respaldo
-- [ ] Verificación al arrancar de que la última orden abierta se puede recuperar
-      (endurece lo hecho en FASE 6)
-- **Permisos nuevos**: `respaldos.*`
-- **Depende de**: todo lo anterior
-- **Hecho cuando**: si se corrompe o se pierde la laptop, se recupera con un respaldo.
+- [x] **Respaldo automático y local**: uno por día al abrir la app, con el *backup en línea* de
+      SQLite (`db.backup()`) — no una copia de bytes del archivo, que en modo WAL podría agarrarlo
+      a la mitad de una escritura. Carpeta aparte (`respaldos/`, junto al `.db`), se conservan los
+      últimos 30 (`MAX_AUTOMATICOS`, ~1 mes); no bloquea el arranque si falla.
+- [x] **Respaldo manual** ("💾 Hacer un respaldo ahora", pantalla `#/respaldos`) — estos y los de
+      "antes de restaurar" **nunca se podan solos**, a diferencia de los automáticos.
+- [x] **Restaurar desde un respaldo**: guarda antes una foto de "cómo estaba todo" (si la base
+      actual ya no se puede ni leer, ese paso se salta y sigue igual), copia el archivo elegido,
+      limpia el `-wal`/`-shm` viejo que ya no aplica, verifica que el archivo restaurado abra bien,
+      y **la aplicación se reinicia sola** (`app.relaunch()`) — es la única forma de garantizar que
+      todo (sesión, catálogos en memoria) arranca limpio contra los datos nuevos. Confirmación
+      escribiendo la palabra "RESTAURAR", como borrar un repositorio en GitHub: no basta un sí/no.
+- [x] **Verificación al arrancar** (`PRAGMA integrity_check` de SQLite, en `src/main/index.js`,
+      antes de `runMigrations()`): si la base no pasa, aparece un diálogo **nativo** de Windows —
+      todavía no hay ventana ni interfaz, así que la recuperación no puede depender de que el
+      renderer funcione — ofreciendo restaurar el último respaldo ahí mismo. Esto cubre también
+      "que la última orden abierta se recupere": una base que pasa `integrity_check` es una base
+      que se puede leer de verdad, tickets abiertos incluidos.
+- **Permisos nuevos**: `respaldos.view` / `.crear` / `.restaurar` (separados: crear un respaldo y
+  restaurar uno son niveles de confianza muy distintos).
+- **Servicio**: `src/main/backup/backupService.js`. **Vista**: `respaldos.js`.
+- **Pruebas**: `test/backup/backupService.test.js` (rotación, restaurar de punta a punta, nombres
+  con `..` rechazados, detección de base dañada) + `test/seguridad/respaldosPermisos.test.js`
+  (matriz de permisos sobre el IPC real).
+- **Hecho cuando**: si se corrompe o se pierde la laptop, se recupera con un respaldo. ✅
 
 ---
 
@@ -408,22 +425,24 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Módulo | Archivo | Estado |
 |--------|---------|--------|
 | Acceso: login, sesión, permisos por rol, escalada, bitácora | `test/seguridad/accesoYPermisos.test.js` | ✅ 22 |
-| Inventario: matriz de permisos por canal | `test/seguridad/inventarioPermisos.test.js` | ✅ 8 |
+| Inventario: matriz de permisos por canal | `test/seguridad/inventarioPermisos.test.js` | ✅ 9 |
 | Inventario: categorías de insumos | `test/inventory/categoriaService.test.js` | ✅ 25 |
-| Inventario: insumos y movimientos | `test/inventory/insumoService.test.js` | ✅ 58 |
+| Inventario: insumos y movimientos | `test/inventory/insumoService.test.js` | ✅ 60 |
 | Inventario: existencia en negativo (faltantes) | `test/inventory/stockNegativo.test.js` | ✅ 8 |
-| Menú: categorías de producto | `test/menu/productoCategoriaService.test.js` | ✅ 16 |
-| Menú: modificadores y su receta | `test/menu/modificadorService.test.js` | ✅ 15 |
-| Menú: productos, tamaños, precios, recetas, grupos de opción, **foto** | `test/menu/productoService.test.js` | ✅ 42 |
+| Menú: categorías de producto | `test/menu/productoCategoriaService.test.js` | ✅ 15 |
+| Menú: modificadores y su receta | `test/menu/modificadorService.test.js` | ✅ 14 |
+| Menú: productos, tamaños, precios, recetas, grupos de opción, **foto** | `test/menu/productoService.test.js` | ✅ 44 |
 | Ventas: mesas | `test/ventas/mesaService.test.js` | ✅ 8 |
-| Ventas: cuentas, cobro, cancelaciones, historial, **pasar a llevar** | `test/ventas/ventaService.test.js` | ✅ 41 |
-| Promociones: CRUD + evaluador `calcular()` | `test/promociones/promocionService.test.js` | ✅ 19 |
-| Promociones: aplicar/quitar en la venta, recálculo, cobro con descuento | `test/promociones/ventaPromociones.test.js` | ✅ 10 |
+| Ventas: cuentas, cobro, cancelaciones, historial, **pasar a llevar** | `test/ventas/ventaService.test.js` | ✅ 42 |
+| Promociones: CRUD + evaluador `calcular()` | `test/promociones/promocionService.test.js` | ✅ 20 |
+| Promociones: aplicar/quitar en la venta, recálculo, cobro con descuento | `test/promociones/ventaPromociones.test.js` | ✅ 9 |
 | Caja: turno, movimientos, arqueo | `test/caja/cajaService.test.js` | ✅ 13 |
 | Cierre de día: congelar, bloqueos, reportes desde snapshot, reabrir | `test/caja/cierreService.test.js` | ✅ 9 |
-| Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo | `test/reportes/reporteService.test.js` | ✅ 15 |
+| Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo | `test/reportes/reporteService.test.js` | ✅ 18 |
+| Respaldos: crear, listar, poda por rotación, restaurar, verificar integridad | `test/backup/backupService.test.js` | ✅ 9 |
+| Seguridad: matriz de permisos de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 6 |
 
-**Total: 313 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 331 pruebas. Toda la lógica de negocio cubierta.**
 
 Las pruebas de `test/seguridad/` corren contra la **capa IPC real** (`test/helpers/ipc.js`
 sustituye `electron` por un doble y captura los canales que registra `registerIpc()`), así que

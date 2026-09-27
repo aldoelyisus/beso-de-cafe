@@ -164,6 +164,12 @@ const api = {
     update: (id, data) => invoke('roles:update', { id, ...data }),
     delete: (id) => invoke('roles:delete', { id }),
   },
+  respaldos: {
+    list: () => invoke('respaldos:list'),
+    info: () => invoke('respaldos:info'),
+    crear: () => invoke('respaldos:crear'),
+    restaurar: (archivo) => invoke('respaldos:restaurar', { archivo }),
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

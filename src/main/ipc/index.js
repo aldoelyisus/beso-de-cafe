@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcMain } = require('electron');
+const { ipcMain, app } = require('electron');
 const session = require('../security/session');
 
 const authService = require('../services/authService');
@@ -19,6 +19,7 @@ const promocionService = require('../services/promocionService');
 const reporteService = require('../services/reporteService');
 const cajaService = require('../services/cajaService');
 const cierreService = require('../services/cierreService');
+const backupService = require('../backup/backupService');
 const { exportar } = require('../reportes/export');
 const { UNITS, MERMA_MOTIVOS } = require('../inventory/units');
 const { MODOS_RECETA } = require('../menu/constants');
@@ -674,6 +675,32 @@ function registerIpc() {
     const res = roleService.deleteRole(id);
     audit('roles.delete', `Eliminó el rol "${role ? role.name : id}" (id ${id})`);
     return res;
+  });
+
+  // ============ Respaldos ============
+  handle('respaldos:list', { permission: 'respaldos.view' }, () => backupService.listRespaldos());
+  handle('respaldos:info', { permission: 'respaldos.view' }, () => ({
+    carpeta: backupService.backupsDir(),
+    maxAutomaticos: backupService.MAX_AUTOMATICOS,
+  }));
+  handle('respaldos:crear', { permission: 'respaldos.crear' }, async () => {
+    const r = await backupService.crearRespaldo({ tipo: 'manual' });
+    audit('respaldos.crear', `Respaldo manual: ${r.archivo} (${r.tamano} bytes)`);
+    return r;
+  });
+  handle('respaldos:restaurar', { permission: 'respaldos.restaurar' }, async ({ archivo }) => {
+    await backupService.restaurarRespaldo(archivo);
+    audit('respaldos.restaurar', `Restauró la base de datos desde: ${archivo}`);
+    // La conexión ya quedó abierta contra el archivo nuevo, pero cualquier
+    // caché en memoria (sesión, catálogos ya cargados en el renderer) sigue
+    // reflejando la base VIEJA. Reiniciar todo el proceso es lo único que
+    // garantiza que arranque limpio contra los datos restaurados.
+    // (`app` no existe en las pruebas, que sustituyen el módulo `electron`
+    // por un doble sin ventanas reales: ahí simplemente no hay nada que reiniciar.)
+    if (app && typeof app.relaunch === 'function') {
+      setTimeout(() => { app.relaunch(); app.exit(0); }, 400);
+    }
+    return { reiniciando: true };
   });
 }
 

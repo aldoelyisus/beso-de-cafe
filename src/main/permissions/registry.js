@@ -247,6 +247,20 @@ const MODULES = [
     submodules: [],
   },
   {
+    key: 'respaldos',
+    label: 'Respaldos',
+    icon: '\u{1F4BE}', // 💾
+    route: '#/respaldos',
+    order: 45,
+    section: 'administracion',
+    permissions: [
+      { action: 'view', label: 'Ver la pantalla de respaldos y el historial' },
+      { action: 'crear', label: 'Hacer un respaldo manual ahora' },
+      { action: 'restaurar', label: 'Restaurar la base de datos desde un respaldo' },
+    ],
+    submodules: [],
+  },
+  {
     key: 'logs',
     label: 'Bitácora del sistema',
     icon: '\u{1F4DC}', // 📜
