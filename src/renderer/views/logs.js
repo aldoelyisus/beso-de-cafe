@@ -62,6 +62,8 @@ const ACTION_LABELS = {
   'cierre.dia': 'Día cerrado',
   'cierre.reabrir': 'Día reabierto',
   'respaldos.crear': 'Respaldo manual guardado',
+  'actualizaciones.aplicar': 'Programa actualizado',
+  'actualizaciones.revertir': 'Actualización deshecha',
 };
 
 function actionLabel(a) {

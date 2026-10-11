@@ -167,6 +167,12 @@ const api = {
   respaldos: {
     crear: () => invoke('respaldos:crear'),
   },
+  actualizaciones: {
+    estado: () => invoke('actualizaciones:estado'),
+    elegir: () => invoke('actualizaciones:elegir'),
+    aplicar: (ruta) => invoke('actualizaciones:aplicar', { ruta }),
+    revertir: () => invoke('actualizaciones:revertir'),
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

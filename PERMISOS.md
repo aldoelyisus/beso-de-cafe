@@ -4,7 +4,7 @@
 > usuario por cada permiso, a solas, y se abre cada pantalla de verdad. Si cambias los
 > permisos, vuelve a correr `scratchpad/qa-permiso-por-permiso.js` y regenera este archivo.
 
-**55 permisos.** Clave: `<modulo>.<accion>`.
+**57 permisos.** Clave: `<modulo>.<accion>`.
 
 ## Cómo leerlos
 
@@ -154,6 +154,13 @@ submódulos: **Insumos o Categorías de insumos**.
 |---|---|---|---|
 | `respaldos.view` | Ver la pantalla de respaldos | `#/respaldos` | — |
 | `respaldos.crear` | Hacer un respaldo manual de la base de datos | — | Respaldos |
+
+### Actualizar el programa
+
+| Permiso | Qué habilita | Pantalla que abre | Botones que enseña |
+|---|---|---|---|
+| `actualizaciones.view` | Ver la versión del programa y el historial de actualizaciones | `#/actualizaciones` | — |
+| `actualizaciones.aplicar` | Aplicar un archivo de actualización (y deshacerlo) | — | Actualizar el programa |
 
 ### Bitácora del sistema
 

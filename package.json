@@ -12,7 +12,8 @@
     "reset-db": "node scripts/reset-db.js",
     "rebuild": "electron-builder install-app-deps",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "actualizacion": "node scripts/crear-actualizacion.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1"
@@ -24,6 +25,7 @@
   "build": {
     "appId": "com.besodecafe.pos",
     "productName": "Beso de Cafe",
+    "asar": false,
     "files": [
       "src/**/*",
       "package.json"

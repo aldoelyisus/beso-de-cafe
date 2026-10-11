@@ -474,6 +474,52 @@ manuales, un botón para sacar el respaldo y que se guarde en una carpeta de la 
 
 ---
 
+## FASE 13 — Soporte a distancia  ✅ HECHO
+*(La cafetería está lejos: si reportan un fallo hay que poder arreglarlo sin ir)*
+
+Dos caminos, a propósito distintos:
+
+### A) Escritorio remoto (AnyDesk) — para ver el problema y urgencias
+No requiere código. Se instala AnyDesk en la laptop, la dueña dicta el número y
+acepta la conexión. Sirve para **ver** el error con tus propios ojos, que es la mitad del
+trabajo, y para arreglar cualquier cosa en el momento. Depende de que haya internet y de
+que alguien esté ahí para aceptar.
+
+### B) Archivo de actualización — para mandar arreglos ya probados
+- [x] **Sin servidor, sin reinstalar, sin tocar los datos.** El arreglo viaja como **un archivo
+      JSON** (≈85 KB, pasa por WhatsApp) con los archivos de código ya corregidos. Se eligió JSON
+      y no .zip porque no hace falta ninguna librería para leerlo, se puede revisar con el Bloc de
+      notas, y viaja bien por mensajería.
+- [x] **Del lado del desarrollador**: `npm run actualizacion HEAD~1 "Qué arregla"` — saca de git
+      los archivos de `src/` que cambiaron y arma el paquete con un sha256 por archivo.
+- [x] **Del lado de la cafetería**: Administración → **Actualizar el programa** → abrir el archivo.
+      La pantalla enseña **qué trae antes de tocar nada** (versión, descripción, cuántos archivos),
+      aplica, y reinicia el programa solo.
+- [x] **Deshacer**: antes de escribir nada se guarda una copia del código anterior
+      (`userData/respaldos-codigo/`, las últimas 5). Desde la misma pantalla se puede deshacer la
+      última actualización.
+- [x] **Si falla a media escritura, se deshace solo**: el programa nunca queda mitad viejo y mitad
+      nuevo.
+- [x] **Candados**: solo escribe dentro de `src/` y `package.json` — nada de rutas absolutas ni
+      `..`, así que una actualización no puede tocar la base de datos ni salirse de la carpeta del
+      programa. Cada archivo trae su sha256: si llegó dañado por WhatsApp, se rechaza entero.
+- [x] **Historial** de lo aplicado (en `userData`, no en la base) y renglón en la bitácora.
+
+> ⚙️ **Empaquetado**: se agregó `"asar": false`. Por omisión electron-builder comprime el código
+> en un solo bloque (`app.asar`) donde **no se puede meter un archivo suelto**; sin este cambio,
+> nada de lo anterior funciona. La instalación es **por usuario** (`%LOCALAPPDATA%\Programs\…`),
+> que es escribible **sin permisos de administrador** — por eso el programa puede reescribirse solo.
+>
+> 🔒 **Lo que una actualización NO puede hacer**: tocar la base de datos (vive en otra carpeta),
+> borrar archivos, ni traer dependencias nuevas de npm. Eso último sí necesitaría reinstalar.
+
+- **Permisos**: `actualizaciones.view` / `actualizaciones.aplicar`.
+- **Servicio**: `src/main/update/updateService.js`. **Vista**: `actualizaciones.js`.
+  **Herramienta**: `scripts/crear-actualizacion.js`.
+- **Hecho cuando**: reportan un fallo y queda arreglado allá el mismo día, sin ir. ✅
+
+---
+
 ## Fases de calidad (pruebas)
 
 Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se agregan
@@ -505,8 +551,9 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Interfaz: que los botones solo se vean con el permiso correspondiente | `test/frontend/permisosVisibilidad.test.js` | ✅ 4 |
 | Interfaz: el flujo "una cosa a la vez" de la caja | `test/frontend/cajaFlujo.test.js` | ✅ 4 |
 | Interfaz: la receta no se guarda a medias ni se vacía sin avisar | `test/frontend/recetaEditor.test.js` | ✅ 4 |
+| Actualizaciones: aplicar, deshacer, archivo dañado, rutas fuera, fallo a media escritura | `test/update/updateService.test.js` | ✅ 8 |
 
-**Total: 338 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 346 pruebas. Toda la lógica de negocio cubierta.**
 
 ### Auditoría de permisos en el frontend *(2026-10-10)*
 

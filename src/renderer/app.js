@@ -6,6 +6,7 @@ import { UsersView } from './views/users.js';
 import { RolesView } from './views/roles.js';
 import { LogsView } from './views/logs.js';
 import { RespaldosView } from './views/respaldos.js';
+import { ActualizacionesView } from './views/actualizaciones.js';
 import { InsumosView } from './views/insumos.js';
 import { InsumoCategoriasView } from './views/insumoCategorias.js';
 import { ProductoCategoriasView } from './views/productoCategorias.js';
@@ -29,6 +30,7 @@ const ROUTES = {
   '#/roles': { requires: 'roles.view', render: RolesView },
   '#/logs': { requires: 'logs.view', render: LogsView },
   '#/respaldos': { requires: 'respaldos.view', render: RespaldosView },
+  '#/actualizaciones': { requires: 'actualizaciones.view', render: ActualizacionesView },
   '#/insumos': { requires: 'insumos.view', render: InsumosView },
   '#/insumo-categorias': { requires: 'insumo_categorias.view', render: InsumoCategoriasView },
   '#/producto-categorias': { requires: 'producto_categorias.view', render: ProductoCategoriasView },

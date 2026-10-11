@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcMain, dialog } = require('electron');
+const { ipcMain, dialog, app } = require('electron');
 const session = require('../security/session');
 
 const authService = require('../services/authService');
@@ -20,6 +20,7 @@ const reporteService = require('../services/reporteService');
 const cajaService = require('../services/cajaService');
 const cierreService = require('../services/cierreService');
 const backupService = require('../backup/backupService');
+const updateService = require('../update/updateService');
 const { exportar } = require('../reportes/export');
 const { UNITS, MERMA_MOTIVOS } = require('../inventory/units');
 const { MODOS_RECETA } = require('../menu/constants');
@@ -691,6 +692,50 @@ function registerIpc() {
     const r = await backupService.crearRespaldoEn(res.filePaths[0]);
     audit('respaldos.crear', `Respaldo guardado en: ${r.ruta} (${r.tamano} bytes)`);
     return { cancelado: false, ...r };
+  });
+
+  // ============ Actualizaciones ============
+  // Reiniciar es parte de actualizar: el código viejo sigue cargado en memoria
+  // hasta que el proceso arranca de nuevo.
+  const reiniciar = () => {
+    if (app && typeof app.relaunch === 'function') {
+      setTimeout(() => { app.relaunch(); app.exit(0); }, 600);
+    }
+  };
+
+  handle('actualizaciones:estado', { permission: 'actualizaciones.view' }, () => updateService.estado());
+
+  handle('actualizaciones:elegir', { permission: 'actualizaciones.aplicar' }, async () => {
+    const res = await dialog.showOpenDialog({
+      title: 'Elige el archivo de actualización',
+      buttonLabel: 'Abrir',
+      properties: ['openFile'],
+      filters: [{ name: 'Actualización de Beso de Café', extensions: ['json'] }],
+    });
+    if (res.canceled || !res.filePaths.length) return { cancelado: true };
+    // Solo se lee y se revisa: todavía no se toca nada del programa.
+    return { cancelado: false, ...updateService.leerActualizacion(res.filePaths[0]) };
+  });
+
+  handle('actualizaciones:aplicar', { permission: 'actualizaciones.aplicar' }, ({ ruta }) => {
+    if (!app.isPackaged) {
+      throw new Error('Esto solo se puede hacer en el programa instalado, no en el de desarrollo.');
+    }
+    const r = updateService.aplicar(ruta);
+    audit('actualizaciones.aplicar',
+      `Aplicó la actualización ${r.version} (${r.archivos.length} archivo/s): ${r.descripcion}`);
+    reiniciar();
+    return { ...r, reiniciando: true };
+  });
+
+  handle('actualizaciones:revertir', { permission: 'actualizaciones.aplicar' }, () => {
+    if (!app.isPackaged) {
+      throw new Error('Esto solo se puede hacer en el programa instalado, no en el de desarrollo.');
+    }
+    const r = updateService.revertir();
+    audit('actualizaciones.revertir', `Deshizo la última actualización (${r.archivos} archivo/s)`);
+    reiniciar();
+    return { ...r, reiniciando: true };
   });
 }
 

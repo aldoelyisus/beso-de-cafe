@@ -260,6 +260,19 @@ const MODULES = [
     submodules: [],
   },
   {
+    key: 'actualizaciones',
+    label: 'Actualizar el programa',
+    icon: '\u{2B06}\u{FE0F}', // ⬆️
+    route: '#/actualizaciones',
+    order: 46,
+    section: 'administracion',
+    permissions: [
+      { action: 'view', label: 'Ver la versión del programa y el historial de actualizaciones' },
+      { action: 'aplicar', label: 'Aplicar un archivo de actualización (y deshacerlo)' },
+    ],
+    submodules: [],
+  },
+  {
     key: 'logs',
     label: 'Bitácora del sistema',
     icon: '\u{1F4DC}', // 📜
