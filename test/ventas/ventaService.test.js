@@ -195,7 +195,7 @@ test('no se cobra en un día cerrado', () => {
   const cierreSvc = require('../../src/main/services/cierreService');
   const { presId } = frappe();
   // cerrar el día requiere sin cuentas abiertas ni turno abierto
-  require('../../src/main/services/cajaService').cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  require('../../src/main/services/cajaService').cerrarCorte({ efectivo_contado: 0, notas: 'cierre de prueba' }, ACTOR);
   cierreSvc.cerrarDia(cierreSvc.hoyISO(), ACTOR);
   const v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
   svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1 }, ACTOR);

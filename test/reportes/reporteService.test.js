@@ -331,7 +331,7 @@ test('rango de varios días: suma el día cerrado (snapshot) + el día abierto (
   getDb().prepare("UPDATE venta_pagos SET created_at = datetime(?, '12:00:00') WHERE venta_id = ?").run(AYER, vAyer.id);
 
   // cerrar el día de AYER (requiere sin cuentas abiertas ni turno abierto)
-  cajaSvc.cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  cajaSvc.cerrarCorte({ efectivo_contado: 0, notas: 'cierre de prueba' }, ACTOR);
   cierreSvc.cerrarDia(AYER, ACTOR);
 
   // venta de HOY
@@ -349,4 +349,50 @@ test('rango de varios días: suma el día cerrado (snapshot) + el día abierto (
   const pp = svc.porProducto({ desde: AYER, hasta: HOY });
   assert.equal(pp.filas.length, 1);
   assert.equal(pp.filas[0].unidades, 3, '2 de ayer + 1 de hoy');
+});
+
+// ================= movimientos de caja =================
+test('movimientosCaja: entradas, salidas y el detalle con su concepto', () => {
+  abrirCaja();
+  cajaSvc.registrarMovimiento({ tipo: 'retiro', monto: 500, concepto: 'pago al proveedor' }, ACTOR);
+  cajaSvc.registrarMovimiento({ tipo: 'retiro', monto: 120, concepto: 'servilletas' }, ACTOR);
+  cajaSvc.registrarMovimiento({ tipo: 'retiro', monto: 80, concepto: 'servilletas' }, ACTOR);
+  cajaSvc.registrarMovimiento({ tipo: 'ingreso', monto: 300, concepto: 'cambio de la dueña' }, ACTOR);
+
+  const hoy = new Date().toLocaleDateString('en-CA');
+  const r = svc.movimientosCaja({ desde: hoy, hasta: hoy });
+
+  near(r.salidas, 700, 'salieron 700');
+  near(r.entradas, 300, 'entraron 300');
+  near(r.neto, -400, 'neto −400');
+  assert.equal(r.filas.length, 4);
+  assert.ok(r.filas.every((f) => f.concepto), 'cada movimiento trae su concepto');
+
+  // agrupado: "servilletas" aparece dos veces y se suma
+  const servilletas = r.salidas_por_concepto.find((x) => x.concepto === 'servilletas');
+  assert.equal(servilletas.veces, 2);
+  near(servilletas.monto, 200, '120 + 80');
+  assert.equal(r.salidas_por_concepto[0].concepto, 'pago al proveedor', 'ordenado por monto');
+});
+
+test('movimientosCaja: fuera del periodo no cuenta', () => {
+  abrirCaja();
+  cajaSvc.registrarMovimiento({ tipo: 'retiro', monto: 500, concepto: 'hoy' }, ACTOR);
+  const r = svc.movimientosCaja({ desde: '2020-01-01', hasta: '2020-01-31' });
+  assert.equal(r.filas.length, 0);
+  near(r.salidas, 0, 'sin salidas en ese rango');
+});
+
+test('las salidas de efectivo NO bajan la ganancia del resumen', () => {
+  abrirCaja();
+  const { presId } = cafe();
+  venderYCobrar(presId, 1);
+
+  const hoy = new Date().toLocaleDateString('en-CA');
+  const antes = svc.resumen({ desde: hoy, hasta: hoy });
+  cajaSvc.registrarMovimiento({ tipo: 'retiro', monto: 50, concepto: 'servilletas' }, ACTOR);
+  const despues = svc.resumen({ desde: hoy, hasta: hoy });
+
+  near(despues.ganancia, antes.ganancia, 'la ganancia no cambia por sacar efectivo del cajón');
+  near(despues.ingreso_neto, antes.ingreso_neto, 'el ingreso tampoco');
 });

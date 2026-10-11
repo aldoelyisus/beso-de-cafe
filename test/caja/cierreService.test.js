@@ -53,7 +53,7 @@ test('no se cierra el día con la caja abierta', () => {
 
 test('no se cierra un día futuro ni uno ya cerrado', () => {
   cajaSvc.abrirCorte({ fondo_inicial: 0 }, ACTOR);
-  cajaSvc.cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  cajaSvc.cerrarCorte({ efectivo_contado: 0, notas: 'cierre de prueba' }, ACTOR);
   assert.throws(() => svc.cerrarDia('2099-01-01', ACTOR), /futuro/i);
   svc.cerrarDia(HOY, ACTOR);
   assert.throws(() => svc.cerrarDia(HOY, ACTOR), /ya está cerrado/i);
@@ -64,7 +64,7 @@ test('cerrar el día congela los totales y el desglose por producto', () => {
   abrirCaja();
   const { presId } = cafe();
   venderYCobrar(presId, 3, 'efectivo');   // 120, costo 3×3 = 9
-  cajaSvc.cerrarCorte({ efectivo_contado: 120 }, ACTOR);
+  cajaSvc.cerrarCorte({ efectivo_contado: 120, notas: 'cierre de prueba' }, ACTOR);
 
   const c = svc.cerrarDia(HOY, ACTOR);
   assert.equal(c.ventas, 1);
@@ -85,7 +85,7 @@ test('resumen: el día cerrado se lee del snapshot y da el mismo total', () => {
   venderYCobrar(presId, 2, 'transferencia'); // 80
   const enVivo = reporteSvc.resumen({ desde: HOY, hasta: HOY });
 
-  cajaSvc.cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  cajaSvc.cerrarCorte({ efectivo_contado: 0, notas: 'cierre de prueba' }, ACTOR);
   svc.cerrarDia(HOY, ACTOR);
 
   const post = reporteSvc.resumen({ desde: HOY, hasta: HOY });
@@ -103,7 +103,7 @@ test('reabrir el día lo quita y permite volver a cobrar', () => {
   abrirCaja();
   const { presId } = cafe();
   venderYCobrar(presId, 1, 'transferencia');
-  cajaSvc.cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  cajaSvc.cerrarCorte({ efectivo_contado: 0, notas: 'cierre de prueba' }, ACTOR);
   svc.cerrarDia(HOY, ACTOR);
   assert.equal(svc.diaCerrado(HOY), true);
 
@@ -124,7 +124,7 @@ test('listCierres trae los días cerrados', () => {
   abrirCaja();
   const { presId } = cafe();
   venderYCobrar(presId, 1, 'transferencia');
-  cajaSvc.cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  cajaSvc.cerrarCorte({ efectivo_contado: 0, notas: 'cierre de prueba' }, ACTOR);
   svc.cerrarDia(HOY, ACTOR);
   const lista = svc.listCierres();
   assert.equal(lista.length, 1);

@@ -400,6 +400,39 @@ los productos cancelados no suman.
 
 ---
 
+### Las salidas de efectivo, a la vista *(2026-10-11)*
+
+Pedido de la dueña: *"al cerrar la caja hay un espacio para salidas de dinero, necesito que lo
+muestres… tengo vendido 1000 y sacamos 500, ponme que debí cerrar con 1000 pero salieron 500. Lo
+mismo en reportes, y los comentarios obligatorios para ver los detalles"*.
+
+El número que ya se mostraba al cerrar (*"deberías tener en el cajón $500"*) **ya descontaba** las
+salidas, pero escondía la historia: parecía que faltaba dinero. Ahora se cuenta completa.
+
+- [x] **Desglose al cerrar la caja**, con las salidas y **el concepto de cada una**:
+      `Fondo $0 → Ventas en efectivo $1,000 → Debías cerrar con $1,000 → …pero salieron −$500
+      (· pago al proveedor de café) → En el cajón debe haber $500`.
+- [x] **El comentario del cierre pasó a ser obligatorio** (antes decía "Opcional"). Es lo que
+      explica el día cuando alguien revise ese corte después.
+- [x] **Historial de cierres**: columna "Salió" y un botón **Ver** que abre el mismo desglose del
+      día, lo que se contó, la diferencia y el comentario.
+- [x] **Reportes → pestaña "Entró / salió efectivo"**: totales del periodo, en qué se fue
+      (agrupado por concepto, para ver patrones) y el detalle uno por uno con fecha, concepto y
+      quién. Exportable a Excel y PDF como el resto.
+- [x] En un corte **ya cerrado** manda el esperado con el que **se cerró**, no uno recalculado
+      hoy: si después se cancela una venta pagada, el arqueo de aquel día no cambia.
+
+> ⚠️ **Lo que NO se hizo, a propósito**: las salidas de efectivo **no se restan de la ganancia** y
+> la pestaña lo dice de frente. Sacar dinero del cajón no es un gasto del negocio: es dinero
+> moviéndose. Si con ese efectivo se compró insumo, ese costo **ya** está contado al registrar la
+> compra en Inventario — restarlo otra vez aquí sería contarlo dos veces y la ganancia saldría
+> falsamente baja.
+
+- **Pruebas**: 3 nuevas en `cajaService.test.js`, 3 en `reporteService.test.js` (incluida una que
+  fija que la ganancia NO cambia al sacar efectivo) y 2 en `test/frontend/cajaFlujo.test.js`.
+
+---
+
 ### Repaso de usabilidad de Inventario y Recetas *(2026-10-11)*
 
 Encargo: *"tiene que ser intuitivo, funcional para los usuarios"*. Se revisó manejando las
@@ -543,17 +576,17 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Ventas: cuentas, cobro, cancelaciones, historial, **pasar a llevar** | `test/ventas/ventaService.test.js` | ✅ 42 |
 | Promociones: CRUD + evaluador `calcular()` | `test/promociones/promocionService.test.js` | ✅ 20 |
 | Promociones: aplicar/quitar en la venta, recálculo, cobro con descuento | `test/promociones/ventaPromociones.test.js` | ✅ 9 |
-| Caja: abrir/cerrar, movimientos, arqueo, **conteo vacío ≠ cero** | `test/caja/cajaService.test.js` | ✅ 15 |
+| Caja: abrir/cerrar, movimientos, arqueo, **conteo vacío ≠ cero**, **comentario obligatorio** | `test/caja/cajaService.test.js` | ✅ 17 |
 | Cierre de día: congelar, bloqueos, reportes desde snapshot, reabrir | `test/caja/cierreService.test.js` | ✅ 9 |
-| Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo | `test/reportes/reporteService.test.js` | ✅ 18 |
+| Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo, **entró/salió efectivo** | `test/reportes/reporteService.test.js` | ✅ 21 |
 | Respaldos: el .db resultante abre y trae los datos del momento, nombres, errores | `test/backup/backupService.test.js` | ✅ 4 |
 | Seguridad: permiso de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 4 |
 | Interfaz: que los botones solo se vean con el permiso correspondiente | `test/frontend/permisosVisibilidad.test.js` | ✅ 4 |
-| Interfaz: el flujo "una cosa a la vez" de la caja | `test/frontend/cajaFlujo.test.js` | ✅ 4 |
+| Interfaz: el flujo "una cosa a la vez" de la caja y el desglose de salidas | `test/frontend/cajaFlujo.test.js` | ✅ 6 |
 | Interfaz: la receta no se guarda a medias ni se vacía sin avisar | `test/frontend/recetaEditor.test.js` | ✅ 4 |
 | Actualizaciones: aplicar, deshacer, archivo dañado, rutas fuera, fallo a media escritura | `test/update/updateService.test.js` | ✅ 8 |
 
-**Total: 346 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 353 pruebas. Toda la lógica de negocio cubierta.**
 
 ### Auditoría de permisos en el frontend *(2026-10-10)*
 

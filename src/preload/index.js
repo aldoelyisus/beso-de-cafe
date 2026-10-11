@@ -155,6 +155,7 @@ const api = {
     insumos: (desde, hasta) => invoke('reportes:insumos', { desde, hasta }),
     inversion: (desde, hasta) => invoke('reportes:inversion', { desde, hasta }),
     merma: (desde, hasta) => invoke('reportes:merma', { desde, hasta }),
+    movimientosCaja: (desde, hasta) => invoke('reportes:movimientosCaja', { desde, hasta }),
     exportar: (tipo, formato, desde, hasta) => invoke('reportes:exportar', { tipo, formato, desde, hasta }),
   },
   roles: {

@@ -66,6 +66,7 @@ export async function ReportesView(root) {
       { value: 'insumos', label: 'Insumos usados' },
       { value: 'inversion', label: 'Desglose de inversión' },
       { value: 'merma', label: 'Merma' },
+      { value: 'caja', label: 'Entró / salió efectivo' },
     ],
     state.tab,
     (v) => {
@@ -112,6 +113,7 @@ export async function ReportesView(root) {
       else if (state.tab === 'productos') body.replaceChildren(await productos());
       else if (state.tab === 'insumos') body.replaceChildren(await insumos());
       else if (state.tab === 'inversion') body.replaceChildren(await inversion());
+      else if (state.tab === 'caja') body.replaceChildren(await movimientosCaja());
       else body.replaceChildren(await merma());
     } catch (e) {
       body.replaceChildren(h('div', { class: 'empty' }, e.message));
@@ -220,6 +222,60 @@ export async function ReportesView(root) {
     const filas = d.total_insumos.map((t) => [t.nombre, num(t.cantidad) + ' ' + t.unidad_base, money(t.costo)]);
     filas.push(['INVERSIÓN TOTAL', '', money(d.total_costo)]);
     wrap.appendChild(tabla(['Insumo', 'Cantidad total', 'Costo total'], filas, null, filas.length - 1));
+    return wrap;
+  }
+
+  /**
+   * Dinero que entró o salió del cajón, con su concepto.
+   * Va en su propia pestaña a propósito: NO es gasto ni baja la ganancia.
+   * Lo que se compró con ese efectivo, si es insumo, ya cuenta como costo
+   * por su lado (al registrar la entrada al inventario); sumarlo aquí otra
+   * vez sería contarlo dos veces.
+   */
+  async function movimientosCaja() {
+    const d = await window.api.reportes.movimientosCaja(state.desde, state.hasta);
+    const wrap = h('div', {});
+
+    wrap.appendChild(h('div', { class: 'rep-eq' },
+      eqCell('Entró al cajón', money(d.entradas), 'ingresos manuales'),
+      eqCell('Salió del cajón', '−' + money(d.salidas), 'retiros', '', 'neg'),
+      eqCell('Neto', (d.neto < 0 ? '−' : '') + money(Math.abs(d.neto)),
+        d.neto >= 0 ? 'entró más de lo que salió' : 'salió más de lo que entró',
+        '', d.neto >= 0 ? 'pos' : 'neg')));
+
+    wrap.appendChild(h('div', { class: 'hint' },
+      'Esto no se resta de la ganancia: es dinero moviéndose del cajón, no un gasto del negocio. '
+      + 'Si con ese efectivo se compró insumo, el costo ya está contado al registrar esa compra en Inventario.'));
+
+    if (!d.filas.length) {
+      wrap.appendChild(h('div', { class: 'empty' }, 'No entró ni salió efectivo del cajón en este periodo.'));
+      return wrap;
+    }
+
+    if (d.salidas_por_concepto.length > 1) {
+      wrap.appendChild(h('div', { class: 'section-title' }, 'En qué se fue el efectivo'));
+      wrap.appendChild(h('div', { class: 'card' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Concepto'), h('th', {}, 'Veces'), h('th', {}, 'Total'))),
+        h('tbody', {}, ...d.salidas_por_concepto.map((r) => h('tr', {},
+          h('td', {}, esc(r.concepto)),
+          h('td', {}, String(r.veces)),
+          h('td', {}, money(r.monto))))))));
+    }
+
+    wrap.appendChild(h('div', { class: 'section-title' }, 'Uno por uno'));
+    wrap.appendChild(h('div', { class: 'card' }, h('table', {},
+      h('thead', {}, h('tr', {},
+        h('th', {}, 'Cuándo'), h('th', {}, 'Qué pasó'), h('th', {}, 'Concepto'),
+        h('th', {}, 'Monto'), h('th', {}, 'Quién'))),
+      h('tbody', {}, ...d.filas.map((r) => h('tr', {},
+        h('td', {}, esc(r.cuando)),
+        h('td', {}, r.tipo === 'retiro'
+          ? h('span', { class: 'badge off' }, 'Salió')
+          : h('span', { class: 'badge on' }, 'Entró')),
+        h('td', {}, esc(r.concepto)),
+        h('td', {}, (r.tipo === 'retiro' ? '−' : '+') + money(r.monto)),
+        h('td', {}, '@' + esc(r.username || ''))))))));
+
     return wrap;
   }
 

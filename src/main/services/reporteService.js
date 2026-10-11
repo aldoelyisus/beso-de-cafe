@@ -349,4 +349,49 @@ function _diaEnVivo(fecha) {
   };
 }
 
-module.exports = { resumen, porProducto, insumosUsados, inversionPorProducto, merma, _diaEnVivo };
+/**
+ * Entradas y salidas de efectivo del cajón en el periodo, con su concepto.
+ *
+ * OJO: esto NO es gasto ni afecta la ganancia. Es dinero que se sacó o se
+ * metió al cajón (comprar servilletas, la dueña llevándose efectivo, traer
+ * cambio). Lo que se compró con ese dinero, si es insumo, entra al costo por
+ * su propio lado —al registrar la entrada de inventario—, así que sumarlo
+ * aquí otra vez sería contarlo dos veces. Va aparte a propósito.
+ */
+function movimientosCaja({ desde, hasta } = {}) {
+  ({ desde, hasta } = rango(desde, hasta));
+  const filas = getDb().prepare(
+    `SELECT m.tipo, m.monto, m.concepto, m.username,
+            date(m.created_at, 'localtime') AS fecha,
+            datetime(m.created_at, 'localtime') AS cuando,
+            m.corte_id
+     FROM caja_movimientos m
+     WHERE date(m.created_at, 'localtime') BETWEEN @desde AND @hasta
+     ORDER BY m.created_at DESC`
+  ).all({ desde, hasta });
+
+  const suma = (t) => round2(filas.filter((f) => f.tipo === t).reduce((s, f) => s + f.monto, 0));
+  const entradas = suma('ingreso');
+  const salidas = suma('retiro');
+
+  // también por concepto, para ver en qué se va el efectivo
+  const porConcepto = new Map();
+  for (const f of filas.filter((x) => x.tipo === 'retiro')) {
+    const k = f.concepto.trim().toLowerCase();
+    const p = porConcepto.get(k) || { concepto: f.concepto.trim(), veces: 0, monto: 0 };
+    p.veces += 1;
+    p.monto += f.monto;
+    porConcepto.set(k, p);
+  }
+
+  return {
+    desde, hasta, entradas, salidas,
+    neto: round2(entradas - salidas),
+    filas,
+    salidas_por_concepto: [...porConcepto.values()]
+      .map((p) => ({ ...p, monto: round2(p.monto) }))
+      .sort((a, b) => b.monto - a.monto),
+  };
+}
+
+module.exports = { resumen, porProducto, insumosUsados, inversionPorProducto, merma, movimientosCaja, _diaEnVivo };

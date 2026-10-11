@@ -122,15 +122,17 @@ export async function CajaView(root) {
     const fila = (c) => h('tr', {},
       h('td', {}, esc(c.cerrado_at || '')),
       h('td', {}, money(c.efectivo_esperado)),
+      h('td', {}, c.retiros ? h('span', { style: 'color:var(--danger)' }, '−' + money(c.retiros)) : '—'),
       h('td', {}, c.efectivo_contado != null ? money(c.efectivo_contado) : '—'),
       h('td', {}, c.diferencia == null ? '—' : diffBadge(c.diferencia)),
-      h('td', {}, '@' + esc(c.cerrado_username || ''))
+      h('td', {}, '@' + esc(c.cerrado_username || '')),
+      h('td', {}, h('button', { class: 'btn small secondary', onclick: () => verCierre(c.id) }, 'Ver'))
     );
     const tabla = () => h('div', { class: 'card', style: 'margin-top:8px' },
       h('table', {},
         h('thead', {}, h('tr', {},
-          h('th', {}, 'Cerrada'), h('th', {}, 'Esperado'), h('th', {}, 'Contado'),
-          h('th', {}, 'Diferencia'), h('th', {}, 'Quién'))),
+          h('th', {}, 'Cerrada'), h('th', {}, 'Esperado'), h('th', {}, 'Salió'), h('th', {}, 'Contado'),
+          h('th', {}, 'Diferencia'), h('th', {}, 'Quién'), h('th', {}, ''))),
         h('tbody', {}, ...cerrados.map(fila))
       )
     );
@@ -191,11 +193,49 @@ export async function CajaView(root) {
     });
   }
 
+  /**
+   * Desglose del arqueo: de dónde sale el número contra el que se compara.
+   * Lo importante es que las SALIDAS se vean: "debías cerrar con $1,000 pero
+   * salieron $500" explica solo por qué el cajón tiene menos de lo vendido.
+   */
+  function desgloseArqueo(c) {
+    const sinSalidas = round2(c.fondo_inicial + c.ventas_efectivo + c.ingresos_manuales);
+    const fila = (etiqueta, monto, extra = '') => h('div',
+      { style: 'display:flex;justify-content:space-between;gap:12px;margin-top:4px;' + extra },
+      h('span', {}, etiqueta), h('span', {}, monto));
+
+    const wrap = h('div', { class: 'arqueo-desglose' },
+      fila('Fondo con el que abriste', money(c.fondo_inicial)),
+      fila('Ventas en efectivo', money(c.ventas_efectivo)),
+      c.ingresos_manuales ? fila('Entró efectivo', '+' + money(c.ingresos_manuales)) : null,
+      fila('Debías cerrar con', money(sinSalidas), 'border-top:1px solid var(--line);margin-top:8px;padding-top:8px;font-weight:600')
+    );
+
+    if (c.retiros) {
+      wrap.appendChild(fila('…pero salieron', '−' + money(c.retiros), 'color:var(--danger);font-weight:600'));
+      // Cada salida con su concepto: es la respuesta a "¿y ese dinero dónde quedó?"
+      const salidas = c.movimientos.filter((m) => m.tipo === 'retiro');
+      wrap.appendChild(h('div', { class: 'arqueo-salidas' },
+        ...salidas.map((m) => h('div', {},
+          h('span', { class: 'grow' }, '· ' + esc(m.concepto)),
+          h('span', {}, '−' + money(m.monto)),
+          h('span', { class: 'muted' }, soloHora(m.created_at))))));
+    }
+    // En un corte ya cerrado manda el número con el que SE CERRÓ, no uno
+    // recalculado hoy: si después se canceló una venta pagada, el arqueo de
+    // aquel día no cambia.
+    const esperado = c.estado === 'cerrado' && c.efectivo_esperado != null
+      ? c.efectivo_esperado : c.efectivo_esperado_calc;
+    wrap.appendChild(fila('En el cajón debe haber', money(esperado),
+      'border-top:1px solid var(--line);margin-top:8px;padding-top:8px;font-size:16px;font-weight:700'));
+    return wrap;
+  }
+
   /** Paso 1: el arqueo. Al terminar, el paso 2 pregunta por el día. */
   function cerrarCaja(c) {
     const esperado = c.efectivo_esperado_calc;
     const contado = h('input', { type: 'number', min: '0', step: 'any', placeholder: '$' });
-    const notas = h('input', { type: 'text', placeholder: 'Opcional' });
+    const notas = h('input', { type: 'text', placeholder: '¿Cómo estuvo el día? ¿Algo raro que anotar?' });
     const dif = h('div', { class: 'hint', style: 'font-size:14px;min-height:20px' });
     const sync = () => {
       dif.innerHTML = '';
@@ -212,14 +252,15 @@ export async function CajaView(root) {
     openModal({
       title: 'Cerrar caja',
       body: h('div', {},
-        h('p', {}, 'Deberías tener en el cajón: ', h('strong', {}, money(esperado))),
+        desgloseArqueo(c),
         field('¿Cuánto efectivo contaste?', contado),
         dif,
-        field('Notas', notas, 'Por si hubo algo raro que explicar')),
+        field('Comentario del cierre', notas, 'Obligatorio: es lo que va a explicar este día cuando alguien lo revise después')),
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
         { label: 'Cerrar caja', kind: 'primary', onClick: async (close) => {
           if (String(contado.value).trim() === '') throw new Error('Escribe cuánto efectivo contaste.');
+          if (!notas.value.trim()) throw new Error('Escribe el comentario del cierre.');
           const r = await window.api.caja.cerrar(contado.value, notas.value.trim());
           toast(r.diferencia === 0 ? 'Caja cerrada, cuadra exacto' : `Caja cerrada (diferencia ${money(r.diferencia)})`,
             r.diferencia === 0 ? 'ok' : 'err');
@@ -254,6 +295,37 @@ export async function CajaView(root) {
           close();
         } },
       ],
+    });
+  }
+
+  /** El detalle de un cierre pasado: el mismo desglose, más lo contado y el comentario. */
+  async function verCierre(id) {
+    let c;
+    try { c = await window.api.caja.corte(id); }
+    catch (e) { return toast(e.message, 'err'); }
+    if (!c) return toast('Ese corte ya no existe', 'err');
+
+    const fila = (etiqueta, monto, extra = '') => h('div',
+      { style: 'display:flex;justify-content:space-between;gap:12px;margin-top:4px;' + extra },
+      h('span', {}, etiqueta), h('span', {}, monto));
+
+    openModal({
+      title: `Caja cerrada el ${esc(c.cerrado_at || '')}`,
+      wide: true,
+      body: h('div', {},
+        h('div', { class: 'muted', style: 'margin-bottom:10px' },
+          `Abierta por @${esc(c.abierto_username || '')} · cerrada por @${esc(c.cerrado_username || '')}`),
+        desgloseArqueo(c),
+        fila('Se contó', money(c.efectivo_contado), 'margin-top:10px'),
+        fila('Diferencia', c.diferencia == null ? '—' : money(c.diferencia),
+          `font-weight:700;color:var(--${Math.abs(c.diferencia || 0) < 0.005 ? 'ok' : 'danger'})`),
+        c.ventas_transferencia
+          ? h('div', { class: 'hint' }, `Además se cobraron ${money(c.ventas_transferencia)} por transferencia (no iban en el cajón).`)
+          : null,
+        h('div', { class: 'section-title' }, 'Comentario del cierre'),
+        h('div', { class: c.notas ? 'hint' : 'form-error' },
+          c.notas ? esc(c.notas) : 'Se cerró sin comentario (antes no era obligatorio).')),
+      buttons: [{ label: 'Cerrar', kind: 'secondary', onClick: (close) => close() }],
     });
   }
 

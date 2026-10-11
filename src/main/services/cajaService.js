@@ -91,6 +91,9 @@ function cerrarCorte({ efectivo_contado, notas }, actor = {}) {
   const contado = Number(efectivo_contado);
   if (!Number.isFinite(contado)) throw new Error('El efectivo contado debe ser un número.');
   if (contado < 0) throw new Error('El efectivo contado no puede ser negativo.');
+  // El comentario del cierre es obligatorio: es lo que explica el día cuando
+  // alguien revise este corte después (sobró, faltó, o todo normal).
+  if (vacio(notas)) throw new Error('Escribe un comentario del cierre: cómo estuvo el día o por qué no cuadró.');
   const esperado = c.efectivo_esperado_calc;
   db.prepare(
     `UPDATE cortes_caja SET estado = 'cerrado', cerrado_por = ?, cerrado_username = ?,

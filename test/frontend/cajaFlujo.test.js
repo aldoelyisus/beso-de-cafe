@@ -98,6 +98,42 @@ test('cerrar la caja: con el conteo vacío NO cierra, y avisa qué falta', async
   assert.equal(d(await call('caja:corte', {})).estado, 'abierto', 'la caja sigue abierta');
 });
 
+test('al cerrar, el desglose explica a dónde se fue el dinero que salió', async () => {
+  const { D, pintar } = await montar();
+  await call('caja:abrir', { fondo_inicial: 0 });
+  await venderEnEfectivo(1000);
+  await call('caja:movimiento', { tipo: 'retiro', monto: 500, concepto: 'pago al proveedor de café' });
+
+  const cont = await pintar();
+  await cont.boton('Cerrar caja').dispatch('click');
+  await espera();
+  const t = texto(D.modalAbierto());
+
+  // "vendí 1000, saqué 500, entonces debe haber 500" — contado como historia
+  assert.match(t, /Debías cerrar con\s*\$1,000\.00/, 'dice con cuánto debía cerrar');
+  assert.match(t, /salieron\s*−\$500\.00/, 'y cuánto salió');
+  assert.match(t, /pago al proveedor de café/, 'con el concepto de cada salida, no solo el total');
+  assert.match(t, /En el cajón debe haber\s*\$500\.00/, 'y a qué número se llega');
+});
+
+test('cerrar la caja sin comentario no se puede', async () => {
+  const { D, pintar } = await montar();
+  await call('caja:abrir', { fondo_inicial: 300 });
+  const cont = await pintar();
+  await cont.boton('Cerrar caja').dispatch('click');
+  await espera();
+
+  const input = D.modalAbierto().buscar((n) => n.tagName === 'INPUT' && n.attrs.type === 'number')[0];
+  input.value = '300';
+  await input.dispatch('input');
+  D.limpiarToasts();
+  await D.modalAbierto().boton('Cerrar caja').dispatch('click');
+  await espera();
+
+  assert.match(D.toasts().join(' | '), /comentario del cierre/i);
+  assert.equal(d(await call('caja:corte', {})).estado, 'abierto', 'la caja sigue abierta');
+});
+
 test('cerrar la caja encadena la pregunta del día (ya no es un botón aparte que recordar)', async () => {
   const { D, pintar } = await montar();
   await call('caja:abrir', { fondo_inicial: 300 });
@@ -110,6 +146,8 @@ test('cerrar la caja encadena la pregunta del día (ya no es un botón aparte qu
   await input.dispatch('input');
   assert.match(texto(D.modalAbierto()), /Faltan \$10\.00/, 'calcula la diferencia mientras escribe');
 
+  const nota = D.modalAbierto().buscar((n) => n.tagName === 'INPUT' && n.attrs.type === 'text')[0];
+  nota.value = 'día tranquilo, faltaron 10 de cambio';
   await D.modalAbierto().boton('Cerrar caja').dispatch('click');
   await espera(40);
 

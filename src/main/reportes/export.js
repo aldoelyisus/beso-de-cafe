@@ -129,6 +129,32 @@ function armar(tipo, data) {
       html: (htmlProd || '<p>Sin ventas en el periodo.</p>') + htmlTotal,
     };
   }
+  if (tipo === 'caja') {
+    const encMov = ['Cuándo', 'Qué pasó', 'Concepto', 'Monto', 'Quién'];
+    const filasMov = data.filas.map((r) => [r.cuando, r.tipo === 'retiro' ? 'Salió' : 'Entró', r.concepto, r.monto, r.username]);
+    const encCon = ['Concepto', 'Veces', 'Total'];
+    const filasCon = data.salidas_por_concepto.map((r) => [r.concepto, r.veces, r.monto]);
+    return {
+      titulo: 'Entró / salió efectivo del cajón',
+      periodo,
+      csv: [
+        { titulo: 'Entró / salió efectivo — ' + periodo, encabezados: ['Concepto', 'Valor'], filas: [
+          ['Entró al cajón', data.entradas], ['Salió del cajón', data.salidas], ['Neto', data.neto],
+          ['NOTA', 'Esto no baja la ganancia: es dinero moviéndose del cajón, no un gasto del negocio.'],
+        ] },
+        { titulo: 'En qué se fue el efectivo', encabezados: encCon, filas: filasCon },
+        { titulo: 'Uno por uno', encabezados: encMov, filas: filasMov },
+      ],
+      html: `<div class="kpis">
+          <div class="kpi"><div class="k">Entró al cajón</div><div class="v">${esc(money(data.entradas))}</div></div>
+          <div class="kpi"><div class="k">Salió del cajón</div><div class="v">−${esc(money(data.salidas))}</div></div>
+          <div class="kpi"><div class="k">Neto</div><div class="v">${esc(money(data.neto))}</div></div>
+        </div>
+        <p>Esto no baja la ganancia: es dinero moviéndose del cajón, no un gasto del negocio.</p>
+        ${filasCon.length ? `<h2>En qué se fue el efectivo</h2>${tablaHTML(encCon, data.salidas_por_concepto.map((r) => [r.concepto, r.veces, money(r.monto)]))}` : ''}
+        <h2>Uno por uno</h2>${tablaHTML(encMov, data.filas.map((r) => [r.cuando, r.tipo === 'retiro' ? 'Salió' : 'Entró', r.concepto, (r.tipo === 'retiro' ? '−' : '+') + money(r.monto), '@' + r.username]))}`,
+    };
+  }
   // merma
   const enc = ['Insumo', 'Cantidad', 'Unidad', 'Costo'];
   return {

@@ -99,6 +99,17 @@ class Nodo {
     return nuevo;
   }
   remove() { if (this.parentNode) { const i = this.parentNode.children.indexOf(this); if (i >= 0) this.parentNode.children.splice(i, 1); this.parentNode = null; } }
+  /** Se cambia este nodo por otro, en su mismo lugar (lo usa, p. ej., el selector de periodo de Reportes). */
+  replaceWith(...nodos) {
+    if (!this.parentNode) return;
+    const padre = this.parentNode;
+    const i = padre.children.indexOf(this);
+    const nuevos = nodos.flat().filter((n) => n != null && n !== false)
+      .map((n) => (typeof n === 'string' ? Nodo.textNode(n) : n));
+    nuevos.forEach((n) => { n.parentNode = padre; });
+    padre.children.splice(i, 1, ...nuevos);
+    this.parentNode = null;
+  }
   replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
 
   set innerHTML(v) { if (v === '') this.children = []; }

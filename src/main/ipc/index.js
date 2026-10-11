@@ -628,11 +628,15 @@ function registerIpc() {
   handle('reportes:inversion', { permission: 'reportes.view' }, ({ desde, hasta }) => reporteService.inversionPorProducto({ desde, hasta }));
   handle('reportes:merma', { permission: 'reportes.view' }, ({ desde, hasta }) => reporteService.merma({ desde, hasta }));
 
+  handle('reportes:movimientosCaja', { permission: 'reportes.view' }, ({ desde, hasta }) =>
+    reporteService.movimientosCaja({ desde, hasta }));
+
   handle('reportes:exportar', { permission: 'reportes.export' }, async ({ tipo, formato, desde, hasta }) => {
     const data = tipo === 'resumen' ? reporteService.resumen({ desde, hasta })
       : tipo === 'productos' ? reporteService.porProducto({ desde, hasta })
       : tipo === 'insumos' ? reporteService.insumosUsados({ desde, hasta })
       : tipo === 'inversion' ? reporteService.inversionPorProducto({ desde, hasta })
+      : tipo === 'caja' ? reporteService.movimientosCaja({ desde, hasta })
       : reporteService.merma({ desde, hasta });
     const r = await exportar({ formato, tipo, data });
     if (r.ok) audit('reportes.export', `Exportó el reporte "${tipo}" (${formato.toUpperCase()}) del ${desde} al ${hasta}`);
