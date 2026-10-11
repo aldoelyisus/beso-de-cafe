@@ -438,12 +438,12 @@ cada movimiento.
 **5. Crea los roles de cajero.**
 Estas combinaciones están probadas y funcionan. Marca exactamente estas casillas:
 
-**Cajero básico** — puede vender y manejar su turno de caja.
+**Cajero básico** — puede vender y manejar la caja.
 
 | Grupo | Casillas a marcar |
 |---|---|
 | **Ventas** | ☑ Abrir el punto de venta<br>☑ Abrir cuentas y agregar productos<br>☑ Cobrar cuentas (completo o dividido) |
-| **Corte de caja** | ☑ Ver el corte de caja y los cierres de día<br>☑ Abrir / cerrar turno de caja y registrar movimientos de efectivo |
+| **Corte de caja** | ☑ Ver el corte de caja<br>☑ Abrir y cerrar la caja, y registrar entradas / salidas de efectivo |
 
 **Cajero con mando** — lo anterior **más** estas cuatro:
 

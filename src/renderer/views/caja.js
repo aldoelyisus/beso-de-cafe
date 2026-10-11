@@ -2,189 +2,263 @@ import { h, esc, toast, openModal, confirmDialog, field } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const soloHora = (s) => String(s || '').slice(11, 16);
 
+/**
+ * Pantalla de Caja — una cosa a la vez.
+ *
+ * Antes mostraba de golpe el turno, el cierre del día y dos historiales: 13
+ * números y 16 columnas de tabla en la misma vista, y había que entender que
+ * "turno" y "día" eran dos cosas distintas que se cierran por separado y en
+ * cierto orden. La dueña lo describió como "reburujado".
+ *
+ * Ahora la pantalla enseña **solo el paso que toca**: abrir la caja, o el
+ * efectivo que debería haber en el cajón, o que el día ya se cerró. El
+ * desglose y el historial están, pero plegados. Y al cerrar la caja el
+ * propio sistema pregunta si ya se acabó el día: nadie tiene que acordarse
+ * de que son dos pasos.
+ */
 export async function CajaView(root) {
   root.innerHTML = '';
-  const [corte, estadoDia, cortes, cierres] = await Promise.all([
+  const [corte, estadoDia, cortes] = await Promise.all([
     window.api.caja.corte(),
     window.api.caja.estadoDia(),
     window.api.caja.cortes({ limit: 20 }),
-    window.api.caja.cierres({ limit: 30 }),
   ]);
+  const abierta = corte && corte.estado === 'abierto';
 
   root.appendChild(h('div', { class: 'page-head' },
-    h('div', {}, h('h2', {}, 'Corte de caja y cierre de día'),
-      h('div', { class: 'muted' }, 'El turno controla el efectivo del cajón. El cierre de día congela los números del día para los reportes.'))));
+    h('div', {},
+      h('h2', {}, 'Corte de caja'),
+      h('div', { class: 'muted' }, 'El efectivo del cajón: con cuánto empiezas, qué entra y sale, y cuánto debería haber al cerrar.'))));
 
-  root.appendChild(turnoCard(corte));
-  root.appendChild(cierreCard(estadoDia));
-  if (cortes.length) root.appendChild(historial('Turnos de caja', ['Turno', 'Abierto', 'Cerrado', 'Fondo', 'Ventas efectivo', 'Esperado', 'Contado', 'Diferencia'],
-    cortes.map((c) => [
-      '#' + c.id, esc(c.abierto_at || ''), c.estado === 'cerrado' ? esc(c.cerrado_at || '') : h('span', { class: 'badge role' }, 'Abierto'),
-      money(c.fondo_inicial), money(c.ventas_efectivo), money(c.efectivo_esperado),
-      c.efectivo_contado != null ? money(c.efectivo_contado) : '—',
-      c.diferencia == null ? '—' : diffBadge(c.diferencia),
-    ])));
-  if (cierres.length) root.appendChild(historial('Días cerrados', ['Fecha', 'Ventas', 'Ingreso neto', 'Inversión', 'Ganancia', 'Efectivo', 'Transf.', 'Cerró'],
-    cierres.map((c) => [c.fecha, c.ventas, money(c.ingreso_neto), money(c.costo), money(c.ganancia), money(c.efectivo), money(c.transferencia), '@' + esc(c.cerrado_username || '')])));
+  root.appendChild(abierta ? cajaAbiertaCard(corte) : cajaCerradaCard(estadoDia));
+  root.appendChild(historialPlegado(cortes));
 
-  // ---------- Turno ----------
-  function turnoCard(c) {
-    const card = h('div', { class: 'pcard' }, h('h3', {}, 'Turno de caja'));
-    if (!c || c.estado === 'cerrado') {
-      card.appendChild(h('p', { class: 'muted' }, 'No hay un turno abierto. Ábrelo al empezar para poder cobrar en efectivo.'));
-      if (can('caja.turno')) {
-        card.appendChild(h('button', { class: 'btn', onclick: () => abrirTurno() }, 'Abrir turno de caja'));
+  // ---------- Caja cerrada (o día cerrado) ----------
+  function cajaCerradaCard(est) {
+    const card = h('div', { class: 'pcard' });
+    if (est.cerrado) {
+      const c = est.cierre;
+      card.append(
+        h('h3', {}, 'El día de hoy ya está cerrado ', h('span', { class: 'badge on' }, 'Cerrado')),
+        h('p', {}, `Quedaron ${c.ventas} venta(s) por ${money(c.ingreso_neto)}. Los números del día ya están congelados para los reportes.`),
+        h('div', { class: 'hint' }, 'Mientras esté cerrado no se puede cobrar con la fecha de hoy. Si falta registrar algo, reábrelo.')
+      );
+      if (can('caja.cierre_dia')) {
+        card.appendChild(h('button', {
+          class: 'btn secondary', style: 'margin-top:12px',
+          onclick: async () => {
+            if (!(await confirmDialog({ title: 'Reabrir el día', message: `¿Reabrir el día ${est.fecha}? Se podrá volver a cobrar con esta fecha.`, confirmLabel: 'Reabrir', kind: 'primary' }))) return;
+            try { await window.api.caja.reabrirDia(est.fecha); toast('Día reabierto', 'ok'); CajaView(root); }
+            catch (e) { toast(e.message, 'err'); }
+          },
+        }, 'Reabrir el día'));
       }
       return card;
     }
-    card.appendChild(h('div', { class: 'costeo', style: 'grid-template-columns:repeat(auto-fit,minmax(140px,1fr))' },
-      kpi('Fondo inicial', money(c.fondo_inicial)),
-      kpi('Ventas en efectivo', money(c.ventas_efectivo)),
-      kpi('Ingresos manuales', money(c.ingresos_manuales)),
-      kpi('Retiros', '−' + money(c.retiros)),
-      kpi('Efectivo esperado', money(c.efectivo_esperado_calc)),
-      kpi('Ventas por transferencia', money(c.ventas_transferencia))
-    ));
-    card.appendChild(h('div', { class: 'muted', style: 'font-size:12px;margin:4px 0 10px' },
-      `Turno #${c.id} · abierto por @${esc(c.abierto_username)} · ${esc(c.abierto_at)}`));
 
-    if (c.movimientos.length) {
-      card.appendChild(h('div', { class: 'section-title' }, 'Movimientos de efectivo'));
-      card.appendChild(h('div', { class: 'card' }, h('table', {}, h('tbody', {},
-        ...c.movimientos.map((m) => h('tr', {},
-          h('td', {}, m.tipo === 'retiro' ? h('span', { class: 'badge off' }, 'Retiro') : h('span', { class: 'badge on' }, 'Ingreso')),
-          h('td', {}, esc(m.concepto)),
-          h('td', { style: 'text-align:right' }, (m.tipo === 'retiro' ? '−' : '+') + money(m.monto)),
-          h('td', {}, h('span', { class: 'muted', style: 'font-size:11px' }, esc(m.created_at)))
-        ))
-      ))));
-    }
-
+    card.append(
+      h('h3', {}, 'La caja está cerrada'),
+      h('p', { class: 'muted' }, 'Ábrela al empezar para poder cobrar en efectivo. Las transferencias se pueden cobrar aunque la caja esté cerrada.')
+    );
     if (can('caja.turno')) {
-      card.appendChild(h('div', { class: 'row-actions', style: 'justify-content:flex-start;margin-top:12px' },
-        h('button', { class: 'btn secondary small', onclick: () => movimiento('ingreso') }, '+ Ingreso'),
-        h('button', { class: 'btn secondary small', onclick: () => movimiento('retiro') }, '− Retiro'),
-        h('button', { class: 'btn', onclick: () => cerrarTurno(c) }, 'Cerrar turno (arqueo)')
-      ));
+      card.appendChild(h('button', { class: 'btn', onclick: () => abrirCaja() }, 'Abrir caja'));
     }
     return card;
   }
 
-  function abrirTurno() {
+  // ---------- Caja abierta ----------
+  function cajaAbiertaCard(c) {
+    const card = h('div', { class: 'pcard' },
+      h('h3', {}, 'Caja abierta ',
+        h('span', { class: 'muted', style: 'font-weight:400;font-size:13px' },
+          `desde las ${soloHora(c.abierto_at)} · @${esc(c.abierto_username || '')}`)),
+      // Lo único que de verdad importa al cerrar: contra qué número se compara
+      // lo que hay en el cajón.
+      h('div', { class: 'caja-total' },
+        h('div', { class: 'k' }, 'Deberías tener en el cajón'),
+        h('div', { class: 'v' }, money(c.efectivo_esperado_calc))),
+      h('div', { class: 'caja-desglose' },
+        `fondo ${money(c.fondo_inicial)}`,
+        ` + ventas en efectivo ${money(c.ventas_efectivo)}`,
+        c.ingresos_manuales ? ` + entradas ${money(c.ingresos_manuales)}` : '',
+        c.retiros ? ` − salidas ${money(c.retiros)}` : '')
+    );
+
+    if (c.ventas_transferencia) {
+      card.appendChild(h('div', { class: 'hint' },
+        `Además se cobraron ${money(c.ventas_transferencia)} por transferencia — ese dinero no va en el cajón.`));
+    }
+    if (estadoDia.cerrado) {
+      card.appendChild(h('div', { class: 'form-error', style: 'margin-top:10px' },
+        'Ojo: el día de hoy está cerrado, así que no se puede cobrar hasta reabrirlo.'));
+    }
+
+    if (c.movimientos.length) card.appendChild(plegable(`Ver movimientos (${c.movimientos.length})`, () =>
+      h('div', { class: 'card', style: 'margin-top:8px' },
+        ...c.movimientos.map((m) => h('div', { class: 'pay-row' },
+          h('span', {}, m.tipo === 'retiro' ? h('span', { class: 'badge off' }, 'Salió') : h('span', { class: 'badge on' }, 'Entró')),
+          h('span', { class: 'grow' }, esc(m.concepto)),
+          h('span', {}, (m.tipo === 'retiro' ? '−' : '+') + money(m.monto)),
+          h('span', { class: 'muted', style: 'font-size:11px' }, soloHora(m.created_at)))))));
+
+    if (can('caja.turno')) {
+      card.appendChild(h('div', { class: 'caja-acciones' },
+        h('div', { style: 'display:flex;gap:8px' },
+          h('button', { class: 'btn secondary small', onclick: () => movimiento('ingreso') }, 'Entró efectivo'),
+          h('button', { class: 'btn secondary small', onclick: () => movimiento('retiro') }, 'Salió efectivo')),
+        h('button', { class: 'btn', onclick: () => cerrarCaja(c) }, 'Cerrar caja')));
+    }
+    return card;
+  }
+
+  // ---------- Historial, plegado ----------
+  function historialPlegado(lista) {
+    const cerrados = lista.filter((c) => c.estado === 'cerrado');
+    if (!cerrados.length) return h('div', {});
+
+    const fila = (c) => h('tr', {},
+      h('td', {}, esc(c.cerrado_at || '')),
+      h('td', {}, money(c.efectivo_esperado)),
+      h('td', {}, c.efectivo_contado != null ? money(c.efectivo_contado) : '—'),
+      h('td', {}, c.diferencia == null ? '—' : diffBadge(c.diferencia)),
+      h('td', {}, '@' + esc(c.cerrado_username || ''))
+    );
+    const tabla = () => h('div', { class: 'card', style: 'margin-top:8px' },
+      h('table', {},
+        h('thead', {}, h('tr', {},
+          h('th', {}, 'Cerrada'), h('th', {}, 'Esperado'), h('th', {}, 'Contado'),
+          h('th', {}, 'Diferencia'), h('th', {}, 'Quién'))),
+        h('tbody', {}, ...cerrados.map(fila))
+      )
+    );
+    return h('div', { style: 'margin-top:18px' },
+      plegable(`Historial de cierres (${cerrados.length})`, tabla));
+  }
+
+  /** Un "› Título" que abre y cierra su contenido. El contenido se arma una sola vez. */
+  function plegable(titulo, contenidoFn) {
+    const caja = h('div', { style: 'display:none' });
+    let armado = false;
+    const flecha = h('span', {}, '› ');
+    const btn = h('button', {
+      class: 'btn ghost small', style: 'padding-left:0',
+      onclick: () => {
+        if (!armado) { caja.appendChild(contenidoFn()); armado = true; }
+        const abierto = caja.style.display !== 'none';
+        caja.style.display = abierto ? 'none' : '';
+        flecha.textContent = abierto ? '› ' : '⌄ ';
+      },
+    }, flecha, titulo);
+    return h('div', { style: 'margin-top:10px' }, btn, caja);
+  }
+
+  // ---------- Acciones ----------
+  function abrirCaja() {
     const fondo = h('input', { type: 'number', min: '0', step: 'any', value: '0' });
     openModal({
-      title: 'Abrir turno de caja',
-      body: h('div', {}, field('Efectivo inicial en el cajón', fondo, 'El fondo con el que empiezas el turno.')),
+      title: 'Abrir caja',
+      body: h('div', {}, field('¿Con cuánto efectivo empiezas?', fondo, 'Lo que hay en el cajón en este momento. Si está vacío, déjalo en 0.')),
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
-        { label: 'Abrir turno', kind: 'primary', onClick: async (close) => {
-          await window.api.caja.abrir(Number(fondo.value) || 0);
-          toast('Turno abierto', 'ok'); close(); CajaView(root);
+        { label: 'Abrir caja', kind: 'primary', onClick: async (close) => {
+          // Se manda tal cual se escribió: el servicio distingue "vacío" de "0".
+          await window.api.caja.abrir(fondo.value);
+          toast('Caja abierta', 'ok'); close(); CajaView(root);
         } },
       ],
     });
   }
 
   function movimiento(tipo) {
+    const esRetiro = tipo === 'retiro';
     const monto = h('input', { type: 'number', min: '0', step: 'any' });
-    const concepto = h('input', { type: 'text', placeholder: tipo === 'retiro' ? 'Compra de servilletas…' : 'Cambio recibido…' });
+    const concepto = h('input', { type: 'text', placeholder: esRetiro ? 'Compra de servilletas…' : 'Cambio que trajo la dueña…' });
     openModal({
-      title: tipo === 'retiro' ? 'Retiro de efectivo' : 'Ingreso de efectivo',
-      body: h('div', {}, field('Monto', monto), field('Concepto', concepto)),
+      title: esRetiro ? 'Salió efectivo del cajón' : 'Entró efectivo al cajón',
+      body: h('div', {},
+        field('¿Cuánto?', monto),
+        field('¿Para qué?', concepto, 'Para acordarse después de por qué no cuadra el cajón')),
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
         { label: 'Registrar', kind: 'primary', onClick: async (close) => {
-          await window.api.caja.movimiento(tipo, Number(monto.value), concepto.value.trim());
-          toast('Movimiento registrado', 'ok'); close(); CajaView(root);
+          await window.api.caja.movimiento(tipo, monto.value, concepto.value.trim());
+          toast('Anotado', 'ok'); close(); CajaView(root);
         } },
       ],
     });
   }
 
-  function cerrarTurno(c) {
-    const contado = h('input', { type: 'number', min: '0', step: 'any' });
-    const notas = h('input', { type: 'text' });
-    const dif = h('div', { class: 'hint' });
-    contado.addEventListener('input', () => {
-      const d = (Number(contado.value) || 0) - c.efectivo_esperado_calc;
-      dif.textContent = Math.abs(d) < 0.005 ? 'Cuadra exacto.' : d > 0 ? `Sobran ${money(d)}` : `Faltan ${money(-d)}`;
-    });
+  /** Paso 1: el arqueo. Al terminar, el paso 2 pregunta por el día. */
+  function cerrarCaja(c) {
+    const esperado = c.efectivo_esperado_calc;
+    const contado = h('input', { type: 'number', min: '0', step: 'any', placeholder: '$' });
+    const notas = h('input', { type: 'text', placeholder: 'Opcional' });
+    const dif = h('div', { class: 'hint', style: 'font-size:14px;min-height:20px' });
+    const sync = () => {
+      dif.innerHTML = '';
+      if (String(contado.value).trim() === '') { dif.textContent = 'Cuenta el efectivo del cajón y escribe el total.'; return; }
+      const d = round2(Number(contado.value) - esperado);
+      dif.appendChild(Math.abs(d) < 0.005
+        ? h('span', { style: 'color:var(--ok);font-weight:700' }, 'Cuadra exacto ✓')
+        : h('span', { style: `color:var(--${d > 0 ? 'ok' : 'danger'});font-weight:700` },
+            d > 0 ? `Sobran ${money(d)}` : `Faltan ${money(-d)}`));
+    };
+    contado.addEventListener('input', sync);
+    sync();
+
     openModal({
-      title: 'Cerrar turno — arqueo de efectivo',
+      title: 'Cerrar caja',
       body: h('div', {},
-        h('p', {}, 'Efectivo esperado en el cajón: ', h('strong', {}, money(c.efectivo_esperado_calc))),
+        h('p', {}, 'Deberías tener en el cajón: ', h('strong', {}, money(esperado))),
         field('¿Cuánto efectivo contaste?', contado),
         dif,
-        field('Notas', notas, 'Opcional')
-      ),
+        field('Notas', notas, 'Por si hubo algo raro que explicar')),
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
-        { label: 'Cerrar turno', kind: 'primary', onClick: async (close) => {
-          const r = await window.api.caja.cerrar(Number(contado.value), notas.value.trim());
-          toast(r.diferencia === 0 ? 'Turno cerrado, cuadra exacto' : `Turno cerrado (diferencia ${money(r.diferencia)})`, r.diferencia === 0 ? 'ok' : 'err');
-          close(); CajaView(root);
+        { label: 'Cerrar caja', kind: 'primary', onClick: async (close) => {
+          if (String(contado.value).trim() === '') throw new Error('Escribe cuánto efectivo contaste.');
+          const r = await window.api.caja.cerrar(contado.value, notas.value.trim());
+          toast(r.diferencia === 0 ? 'Caja cerrada, cuadra exacto' : `Caja cerrada (diferencia ${money(r.diferencia)})`,
+            r.diferencia === 0 ? 'ok' : 'err');
+          close();
+          await preguntarPorElDia();
         } },
       ],
     });
   }
 
-  // ---------- Cierre de día ----------
-  function cierreCard(est) {
-    const card = h('div', { class: 'pcard' }, h('h3', {}, `Cierre de día — ${est.fecha}`));
-    if (est.cerrado) {
-      const c = est.cierre;
-      card.appendChild(h('div', { class: 'badge on', style: 'display:inline-block;margin-bottom:8px' }, 'Día cerrado'));
-      card.appendChild(resumenGrid(c));
-      card.appendChild(h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' }, `Cerrado por @${esc(c.cerrado_username)} · ${esc(new Date(c.cerrado_at).toLocaleString('es-MX'))}`));
-      if (can('caja.cierre_dia')) {
-        card.appendChild(h('button', { class: 'btn ghost small', style: 'color:var(--danger);margin-top:10px', onclick: async () => {
-          if (!(await confirmDialog({ message: `¿Reabrir el día ${est.fecha}? Se podrá volver a cobrar y editar.`, confirmLabel: 'Reabrir' }))) return;
-          try { await window.api.caja.reabrirDia(est.fecha); toast('Día reabierto', 'ok'); CajaView(root); }
-          catch (e) { toast(e.message, 'err'); }
-        } }, 'Reabrir día'));
-      }
-      return card;
-    }
-    const v = est.en_vivo;
-    card.appendChild(h('p', { class: 'muted' }, 'Números del día hasta ahora (en vivo). Al cerrar el día se congelan.'));
-    card.appendChild(resumenGrid(v));
-    if (can('caja.cierre_dia')) {
-      card.appendChild(h('button', { class: 'btn', style: 'margin-top:12px', onclick: () => cerrarDia(est.fecha) }, 'Cerrar día'));
-    }
-    return card;
+  /** Paso 2: lo que antes era un botón aparte que había que recordar. */
+  async function preguntarPorElDia() {
+    if (!can('caja.cierre_dia')) { CajaView(root); return; }
+    let est;
+    try { est = await window.api.caja.estadoDia(); }
+    catch { CajaView(root); return; }
+    if (est.cerrado) { CajaView(root); return; }
+
+    openModal({
+      title: '¿Ya terminaste el día?',
+      body: h('div', {},
+        h('p', {}, 'La caja quedó cerrada. Si ya no vas a cobrar nada más hoy, cierra también el día.'),
+        h('div', { class: 'hint' },
+          'Cerrar el día congela sus números para los reportes y evita cobrar con la fecha equivocada. ' +
+          'Si todavía falta algo, déjalo abierto: lo puedes cerrar después desde esta misma pantalla.')),
+      onClose: () => CajaView(root),
+      buttons: [
+        { label: 'Todavía no', kind: 'secondary', onClick: (close) => close() },
+        { label: 'Sí, cerrar el día', kind: 'primary', onClick: async (close) => {
+          await window.api.caja.cerrarDia(est.fecha);
+          toast('Día cerrado', 'ok');
+          close();
+        } },
+      ],
+    });
   }
 
-  function resumenGrid(d) {
-    return h('div', { class: 'costeo', style: 'grid-template-columns:repeat(auto-fit,minmax(130px,1fr))' },
-      kpi('Ventas', String(d.ventas)),
-      kpi('Ingreso neto', money(d.ingreso_neto)),
-      kpi('Inversión', money(d.costo)),
-      kpi('Ganancia', money(d.ganancia), d.ganancia >= 0 ? 'pos' : 'neg'),
-      kpi('Efectivo', money(d.efectivo)),
-      kpi('Transferencia', money(d.transferencia)),
-      kpi('Merma', money(d.merma_costo), 'neg')
-    );
-  }
-
-  async function cerrarDia(fecha) {
-    if (!(await confirmDialog({ title: 'Cerrar día', message: `¿Cerrar el día ${fecha}? Después no se podrá cobrar en esa fecha sin reabrirlo.`, confirmLabel: 'Cerrar día', kind: 'primary' }))) return;
-    try { await window.api.caja.cerrarDia(fecha); toast('Día cerrado', 'ok'); CajaView(root); }
-    catch (e) { toast(e.message, 'err'); }
-  }
-
-  function kpi(k, val, cls) { return h('div', {}, h('div', { class: 'k' }, k), h('div', { class: 'v ' + (cls || '') }, val)); }
   function diffBadge(d) {
     if (Math.abs(d) < 0.005) return h('span', { class: 'badge on' }, 'Cuadra');
     return h('span', { class: 'badge off' }, (d > 0 ? '+' : '') + money(d));
-  }
-  function historial(titulo, encabezados, filas) {
-    return h('div', {},
-      h('div', { class: 'section-title' }, titulo),
-      h('div', { class: 'card' }, h('table', {},
-        h('thead', {}, h('tr', {}, ...encabezados.map((e) => h('th', {}, e)))),
-        h('tbody', {}, ...filas.map((f) => h('tr', {}, ...f.map((c) => h('td', {}, typeof c === 'string' || typeof c === 'number' ? String(c) : c)))))
-      ))
-    );
   }
 }

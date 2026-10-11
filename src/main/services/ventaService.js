@@ -372,7 +372,7 @@ function cobrar(ventaId, { itemIds, metodo, etiqueta = '', recibido = null }, ac
   }
   const corte = cajaService.corteAbiertoRow();
   if (metodo === 'efectivo' && !corte) {
-    throw new Error('Abre el turno de caja (Ventas → Corte de caja) antes de cobrar en efectivo.');
+    throw new Error('Abre la caja (Ventas → Corte de caja) antes de cobrar en efectivo.');
   }
   const corteId = corte ? corte.id : null;
 

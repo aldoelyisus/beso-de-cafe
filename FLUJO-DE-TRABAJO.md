@@ -341,6 +341,37 @@ Pantalla `#/caja` (Ventas → Corte de caja). Dos partes:
 - **Permisos**: `caja.view` / `caja.turno` / `caja.cierre_dia`.
 - **Servicios**: `cajaService.js`, `cierreService.js`. **Vista**: `caja.js`.
 
+### Rediseño "una cosa a la vez" *(2026-10-11)*
+
+La dueña dijo que la pantalla se veía **"reburujado o complicado"**. Medido: mostraba de golpe
+**13 cuadritos de número + una tabla de 8 columnas + 4 botones**, y mezclaba tres cosas (el arqueo
+del cajón, un mini-reporte del día y dos historiales) con **dos conceptos que se cierran por
+separado y en cierto orden** (turno y día). La lógica estaba bien; el problema era todo junto.
+
+- **La pantalla ahora enseña solo el paso que toca**: *"La caja está cerrada" + [Abrir caja]*, o
+  bien **un solo número grande** —"deberías tener en el cajón $X"— con el desglose en una línea
+  chiquita, o bien *"El día de hoy ya está cerrado" + [Reabrir el día]*.
+- **El cierre de día dejó de ser un botón aparte que hay que recordar**: al cerrar la caja, el
+  propio sistema pregunta *"¿Ya terminaste el día?"*. Sigue siendo opcional (hay cafeterías con
+  dos turnos en un día) y sigue pidiendo `caja.cierre_dia`.
+- **Movimientos e historial quedaron plegados**; el historial bajó de 8 a 5 columnas y la tabla de
+  "días cerrados" se quitó: esa información es un reporte y ya vive, mejor, en **Reportes**.
+- **El dinero por transferencia se aclara en vez de mezclarse**: "además se cobraron $X por
+  transferencia — ese dinero no va en el cajón".
+- **Vocabulario parejo**: la pantalla, los mensajes de error y la bitácora dicen **"caja"**
+  (antes la pantalla decía una cosa y los errores otra: "turno de caja").
+- **Dos bugs encontrados al probarlo** (ver abajo).
+
+> 🐞 **Bug grave corregido — el arqueo vacío.** `Number('')` es `0` en JavaScript, así que
+> cerrar la caja **sin escribir nada** la cerraba con *"conté $0"*: quedaba registrado un faltante
+> falso a nombre del cajero, y no hay forma de reabrir una caja. Ahora "vacío" y "cero" son cosas
+> distintas (`vacio()` en `cajaService.js`): el vacío se rechaza, un 0 capturado a propósito sí
+> cierra. La interfaz tampoco convierte el campo vacío en `0` antes de mandarlo.
+>
+> 🐞 **Bug menor corregido** — el fondo inicial con texto pegado se guardaba como `$0` en
+> silencio (misma clase que ya se había corregido en Inventario). Vacío sigue valiendo 0 (el
+> cajón empieza sin efectivo); el texto ahora avisa.
+
 ---
 
 ## FASE 10 — Reportes  ✅ HECHO
@@ -428,14 +459,15 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Ventas: cuentas, cobro, cancelaciones, historial, **pasar a llevar** | `test/ventas/ventaService.test.js` | ✅ 42 |
 | Promociones: CRUD + evaluador `calcular()` | `test/promociones/promocionService.test.js` | ✅ 20 |
 | Promociones: aplicar/quitar en la venta, recálculo, cobro con descuento | `test/promociones/ventaPromociones.test.js` | ✅ 9 |
-| Caja: turno, movimientos, arqueo | `test/caja/cajaService.test.js` | ✅ 13 |
+| Caja: abrir/cerrar, movimientos, arqueo, **conteo vacío ≠ cero** | `test/caja/cajaService.test.js` | ✅ 15 |
 | Cierre de día: congelar, bloqueos, reportes desde snapshot, reabrir | `test/caja/cierreService.test.js` | ✅ 9 |
 | Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo | `test/reportes/reporteService.test.js` | ✅ 18 |
 | Respaldos: el .db resultante abre y trae los datos del momento, nombres, errores | `test/backup/backupService.test.js` | ✅ 4 |
 | Seguridad: permiso de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 4 |
 | Interfaz: que los botones solo se vean con el permiso correspondiente | `test/frontend/permisosVisibilidad.test.js` | ✅ 4 |
+| Interfaz: el flujo "una cosa a la vez" de la caja | `test/frontend/cajaFlujo.test.js` | ✅ 4 |
 
-**Total: 328 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 334 pruebas. Toda la lógica de negocio cubierta.**
 
 ### Auditoría de permisos en el frontend *(2026-10-10)*
 

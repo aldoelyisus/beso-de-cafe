@@ -5,6 +5,15 @@ const { getDb } = require('../db/connection');
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const num = (v, def = 0) => { const n = Number(v); return Number.isFinite(n) ? n : def; };
 
+/**
+ * En JavaScript `Number('')` y `Number(null)` son **0**, así que un campo que
+ * la persona dejó vacío llegaba aquí indistinguible de un 0 capturado a
+ * propósito. En el arqueo eso era grave: cerrar el turno sin escribir nada
+ * lo cerraba con "conté $0" y dejaba un faltante falso a nombre del cajero,
+ * sin forma de reabrirlo. Por eso "vacío" se trata aparte de "cero".
+ */
+const vacio = (v) => v === null || v === undefined || String(v).trim() === '';
+
 // ---------------- Turno de caja ----------------
 function corteAbiertoRow() {
   return getDb().prepare("SELECT * FROM cortes_caja WHERE estado = 'abierto' ORDER BY id DESC LIMIT 1").get() || null;
@@ -41,7 +50,13 @@ function getCorte(id) {
 
 function abrirCorte({ fondo_inicial }, actor = {}) {
   const db = getDb();
-  if (corteAbiertoRow()) throw new Error('Ya hay un turno de caja abierto. Ciérralo antes de abrir otro.');
+  if (corteAbiertoRow()) throw new Error('La caja ya está abierta. Ciérrala antes de abrir otra.');
+  // Vacío = el cajón empieza sin efectivo (pasa seguido y no tiene nada de
+  // malo). Texto sí es error: un "quinientos" pegado no puede guardarse
+  // como $0 en silencio y descuadrar el arqueo al cerrar.
+  if (!vacio(fondo_inicial) && !Number.isFinite(Number(fondo_inicial))) {
+    throw new Error('El efectivo inicial debe ser un número.');
+  }
   const f = num(fondo_inicial, 0);
   if (f < 0) throw new Error('El fondo inicial no puede ser negativo.');
   const info = db.prepare(
@@ -53,8 +68,10 @@ function abrirCorte({ fondo_inicial }, actor = {}) {
 function registrarMovimiento({ tipo, monto, concepto }, actor = {}) {
   const db = getDb();
   const c = corteAbiertoRow();
-  if (!c) throw new Error('No hay un turno de caja abierto.');
+  if (!c) throw new Error('La caja está cerrada. Ábrela primero.');
   if (!['ingreso', 'retiro'].includes(tipo)) throw new Error('Tipo de movimiento no válido.');
+  if (vacio(monto)) throw new Error('Falta capturar el monto.');
+  if (!Number.isFinite(Number(monto))) throw new Error('El monto debe ser un número.');
   const m = num(monto, 0);
   if (m <= 0) throw new Error('El monto debe ser mayor a 0.');
   const cpt = String(concepto || '').trim();
@@ -68,9 +85,12 @@ function registrarMovimiento({ tipo, monto, concepto }, actor = {}) {
 function cerrarCorte({ efectivo_contado, notas }, actor = {}) {
   const db = getDb();
   const c = getCorte();
-  if (!c) throw new Error('No hay un turno de caja abierto.');
-  const contado = num(efectivo_contado, NaN);
-  if (!Number.isFinite(contado) || contado < 0) throw new Error('Indica cuánto efectivo contaste.');
+  if (!c) throw new Error('La caja está cerrada. Ábrela primero.');
+  // Dejarlo vacío NO es "conté cero": cerrar así dejaba un faltante falso.
+  if (vacio(efectivo_contado)) throw new Error('Falta capturar cuánto efectivo contaste.');
+  const contado = Number(efectivo_contado);
+  if (!Number.isFinite(contado)) throw new Error('El efectivo contado debe ser un número.');
+  if (contado < 0) throw new Error('El efectivo contado no puede ser negativo.');
   const esperado = c.efectivo_esperado_calc;
   db.prepare(
     `UPDATE cortes_caja SET estado = 'cerrado', cerrado_por = ?, cerrado_username = ?,

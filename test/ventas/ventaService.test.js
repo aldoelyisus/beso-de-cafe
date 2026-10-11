@@ -154,11 +154,11 @@ test('no se cancela un producto ya pagado', () => {
 });
 
 // ================= cobrar =================
-test('cobrar en efectivo requiere un turno de caja abierto; transferencia no', () => {
+test('cobrar en efectivo requiere la caja abierta; transferencia no', () => {
   const { presId } = frappe();
   let v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
   v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1 }, ACTOR);
-  assert.throws(() => svc.cobrar(v.id, { itemIds: v.items_sin_pagar, metodo: 'efectivo' }, ACTOR), /turno de caja/i);
+  assert.throws(() => svc.cobrar(v.id, { itemIds: v.items_sin_pagar, metodo: 'efectivo' }, ACTOR), /abre la caja/i);
   const r = svc.cobrar(v.id, { itemIds: v.items_sin_pagar, metodo: 'transferencia' }, ACTOR);
   assert.equal(r.estado, 'pagada');
 });

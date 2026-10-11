@@ -25,9 +25,9 @@ test('abrir un turno lo deja como el turno abierto', () => {
   assert.equal(svc.corteAbiertoRow().id, c.id);
 });
 
-test('no se pueden abrir dos turnos a la vez', () => {
+test('no se pueden abrir dos cajas a la vez', () => {
   svc.abrirCorte({ fondo_inicial: 0 }, ACTOR);
-  assert.throws(() => svc.abrirCorte({ fondo_inicial: 0 }, ACTOR), /ya hay un turno/i);
+  assert.throws(() => svc.abrirCorte({ fondo_inicial: 0 }, ACTOR), /ya está abierta/i);
 });
 
 test('rechaza un fondo inicial negativo', () => {
@@ -35,8 +35,8 @@ test('rechaza un fondo inicial negativo', () => {
 });
 
 // ================= movimientos =================
-test('registrar un movimiento requiere un turno abierto', () => {
-  assert.throws(() => svc.registrarMovimiento({ tipo: 'retiro', monto: 10, concepto: 'x' }, ACTOR), /turno de caja abierto/i);
+test('registrar un movimiento requiere la caja abierta', () => {
+  assert.throws(() => svc.registrarMovimiento({ tipo: 'retiro', monto: 10, concepto: 'x' }, ACTOR), /caja está cerrada/i);
 });
 
 test('un retiro baja y un ingreso sube el efectivo esperado', () => {
@@ -97,10 +97,32 @@ test('cerrar el turno calcula la diferencia (sobra / falta / cuadra)', () => {
   near(c.diferencia, -5, 'faltaron 5');
 });
 
-test('cerrar el turno requiere uno abierto y un conteo válido', () => {
-  assert.throws(() => svc.cerrarCorte({ efectivo_contado: 100 }, ACTOR), /no hay un turno/i);
+test('cerrar la caja requiere una abierta y un conteo válido', () => {
+  assert.throws(() => svc.cerrarCorte({ efectivo_contado: 100 }, ACTOR), /caja está cerrada/i);
   svc.abrirCorte({ fondo_inicial: 0 }, ACTOR);
-  assert.throws(() => svc.cerrarCorte({ efectivo_contado: -1 }, ACTOR), /cuánto efectivo/i);
+  assert.throws(() => svc.cerrarCorte({ efectivo_contado: -1 }, ACTOR), /no puede ser negativo/i);
+  assert.throws(() => svc.cerrarCorte({ efectivo_contado: 'abc' }, ACTOR), /debe ser un número/i);
+});
+
+// `Number('')` es 0 en JavaScript: dejar el campo vacío cerraba la caja con
+// "conté $0" y dejaba un faltante falso a nombre del cajero, sin poder
+// reabrirla. Vacío y cero tienen que ser cosas distintas.
+test('cerrar la caja con el conteo VACÍO se rechaza; con 0 capturado a propósito sí cierra', () => {
+  svc.abrirCorte({ fondo_inicial: 1000 }, ACTOR);
+  for (const vacio of ['', '   ', null, undefined]) {
+    assert.throws(() => svc.cerrarCorte({ efectivo_contado: vacio }, ACTOR), /falta capturar/i,
+      `con ${JSON.stringify(vacio)} no debería cerrar`);
+  }
+  const c = svc.cerrarCorte({ efectivo_contado: 0 }, ACTOR);
+  assert.equal(c.efectivo_contado, 0);
+  near(c.diferencia, -1000, 'contar 0 de verdad sí es un faltante de 1000');
+});
+
+test('el fondo inicial con texto no se guarda como 0 en silencio', () => {
+  assert.throws(() => svc.abrirCorte({ fondo_inicial: 'quinientos' }, ACTOR), /debe ser un número/i);
+  // vacío sí vale: el cajón empieza sin efectivo
+  const c = svc.abrirCorte({ fondo_inicial: '' }, ACTOR);
+  assert.equal(c.fondo_inicial, 0);
 });
 
 test('tras cerrar el turno se puede abrir otro', () => {

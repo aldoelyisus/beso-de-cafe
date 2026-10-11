@@ -179,7 +179,7 @@ test('un grupo apunta al primer destino que el usuario SÍ puede abrir', async (
   const soloCaja = await comoUsuarioCon(['caja.view']);
   const ventas = soloCaja.menu.find((m) => m.key === 'ventas');
   assert.ok(ventas, 'debe ver el grupo Ventas aunque no tenga ventas.view');
-  assert.deepEqual(ventas.submodules.map((s) => s.label), ['Corte de caja y cierre de día']);
+  assert.deepEqual(ventas.submodules.map((s) => s.label), ['Corte de caja']);
   assert.equal(ventas.route, '#/caja');
 });
 

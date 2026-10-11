@@ -32,7 +32,7 @@ function cerrarDia(fecha, actor = {}) {
   const abiertas = db.prepare("SELECT COUNT(*) c FROM ventas WHERE estado = 'abierta'").get().c;
   if (abiertas > 0) throw new Error(`Hay ${abiertas} cuenta(s) abierta(s). Ciérralas o cancélalas antes de cerrar el día.`);
   const turno = db.prepare("SELECT COUNT(*) c FROM cortes_caja WHERE estado = 'abierto'").get().c;
-  if (turno > 0) throw new Error('Hay un turno de caja abierto. Ciérralo antes de cerrar el día.');
+  if (turno > 0) throw new Error('La caja está abierta. Ciérrala antes de cerrar el día.');
 
   const d = reporteService._diaEnVivo(fecha);
   const tx = db.transaction(() => {

@@ -8,7 +8,7 @@ recuadros 🔑 dicen qué casilla de permisos hace aparecer cada botón.
 
 > ℹ️ **Lo que NO está aquí.** Crear y editar **promociones** se explica en el manual de *Menú y
 > recetas* (Parte 4) — este manual solo cubre cómo el cajero **la aplica** a una cuenta (ver
-> **2.5**). Abrir y cerrar el **turno de caja** y el **corte de caja** tienen su propio manual
+> **2.5**). Abrir y cerrar la **caja** y el **corte de caja** tienen su propio manual
 > aparte.
 
 ---
@@ -412,7 +412,7 @@ por qué. Al confirmar:
 | *"La promoción no está vigente hoy."* / *"Esta cuenta no cumple las condiciones de la promoción."* | La promoción dejó de aplicar entre que la viste y la usaste |
 | *"Método de pago no válido."* | Error de datos, no debería pasar desde la pantalla normal |
 | *"El día de hoy ya está cerrado. Reábrelo desde Corte de caja para poder cobrar."* | El corte del día ya se cerró — ningún método de pago funciona hasta reabrirlo |
-| *"Abre el turno de caja (Ventas → Corte de caja) antes de cobrar en efectivo."* | Nadie ha abierto el turno hoy. Solo bloquea **efectivo**; transferencia si funciona |
+| *"Abre la caja (Ventas → Corte de caja) antes de cobrar en efectivo."* | Nadie ha abierto la caja hoy. Solo bloquea **efectivo**; transferencia sí funciona |
 | *"Elige al menos un producto para cobrar."* | En "Dividir cuenta", intentaste cobrar sin marcar nada |
 | *"Un producto seleccionado está cancelado."* / *"…ya estaba pagado."* | Alguien más cobró o canceló ese renglón justo antes que tú |
 | *"El efectivo recibido (X) no alcanza. Faltan Y."* | El efectivo que escribiste es menor a lo que se cobra |

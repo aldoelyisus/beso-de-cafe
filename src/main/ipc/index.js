@@ -589,12 +589,12 @@ function registerIpc() {
   handle('caja:cortes', { permission: 'caja.view' }, (opts) => cajaService.listCortes(opts || {}));
   handle('caja:abrir', { permission: 'caja.turno' }, ({ fondo_inicial }) => {
     const c = cajaService.abrirCorte({ fondo_inicial }, actor());
-    audit('caja.abrir', `Abrió el turno de caja #${c.id} con fondo de $${c.fondo_inicial}`);
+    audit('caja.abrir', `Abrió la caja #${c.id} con $${c.fondo_inicial} de fondo`);
     return c;
   });
   handle('caja:movimiento', { permission: 'caja.turno' }, ({ tipo, monto, concepto }) => {
     const c = cajaService.registrarMovimiento({ tipo, monto, concepto }, actor());
-    audit('caja.movimiento', `${tipo === 'retiro' ? 'Retiro' : 'Ingreso'} de caja: $${monto} — ${concepto} (turno #${c.id})`);
+    audit('caja.movimiento', `${tipo === 'retiro' ? 'Retiro' : 'Ingreso'} de caja: $${monto} — ${concepto} (caja #${c.id})`);
     return c;
   });
   handle('caja:cerrar', { permission: 'caja.turno' }, ({ efectivo_contado, notas }) => {

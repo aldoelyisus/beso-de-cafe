@@ -183,7 +183,7 @@ const MODULES = [
     ],
     submodules: [
       { key: 'pos', label: 'Punto de venta', route: '#/pos', requires: 'ventas.view' },
-      { key: 'caja', label: 'Corte de caja y cierre de día', route: '#/caja', requires: 'caja.view' },
+      { key: 'caja', label: 'Corte de caja', route: '#/caja', requires: 'caja.view' },
       { key: 'ventas-historial', label: 'Historial de ventas', route: '#/ventas-historial', requires: 'ventas.list' },
       { key: 'mesas-config', label: 'Mesas', route: '#/mesas', requires: 'mesas.view' },
     ],
@@ -196,8 +196,8 @@ const MODULES = [
     order: 8,
     hiddenFromMenu: true,
     permissions: [
-      { action: 'view', label: 'Ver el corte de caja y los cierres de día' },
-      { action: 'turno', label: 'Abrir / cerrar turno de caja y registrar movimientos de efectivo' },
+      { action: 'view', label: 'Ver el corte de caja' },
+      { action: 'turno', label: 'Abrir y cerrar la caja, y registrar entradas / salidas de efectivo' },
       { action: 'cierre_dia', label: 'Cerrar y reabrir el día' },
     ],
     submodules: [],

@@ -36,9 +36,9 @@
 
 | Permiso | Qué habilita | Pantalla que abre | Botones que enseña |
 |---|---|---|---|
-| `caja.view` | Ver el corte de caja y los cierres de día | `#/caja` | — |
-| `caja.turno` | Abrir / cerrar turno de caja y registrar movimientos de efectivo | — | Corte de caja |
-| `caja.cierre_dia` | Cerrar y reabrir el día | — | Corte de caja |
+| `caja.view` | Ver el corte de caja | `#/caja` | — |
+| `caja.turno` | Abrir y cerrar la caja, y registrar entradas / salidas de efectivo | — | Corte de caja |
+| `caja.cierre_dia` | Cerrar y reabrir el día | — | Corte de caja (también el paso "¿Ya terminaste el día?" al cerrar la caja) |
 
 ### Mesas
 

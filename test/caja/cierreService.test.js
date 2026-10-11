@@ -46,9 +46,9 @@ test('no se cierra el día con cuentas abiertas', () => {
   assert.throws(() => svc.cerrarDia(HOY, ACTOR), /cuenta\(s\) abierta/i);
 });
 
-test('no se cierra el día con un turno de caja abierto', () => {
+test('no se cierra el día con la caja abierta', () => {
   abrirCaja();
-  assert.throws(() => svc.cerrarDia(HOY, ACTOR), /turno de caja abierto/i);
+  assert.throws(() => svc.cerrarDia(HOY, ACTOR), /caja está abierta/i);
 });
 
 test('no se cierra un día futuro ni uno ya cerrado', () => {
