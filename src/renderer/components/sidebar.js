@@ -75,7 +75,7 @@ export function Sidebar(currentRoute, onLogout) {
   return h('aside', { class: 'sidebar' },
     h('div', { class: 'brand' },
       marca('brand-marca'),
-      h('strong', {}, 'Beso de Café'),
+      h('strong', {}, 'Beso', h('br'), 'de Café'),
     ),
     nav,
     h('div', { class: 'spacer' }),

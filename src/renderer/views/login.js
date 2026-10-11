@@ -33,7 +33,7 @@ export function LoginView(onSuccess) {
   return h('div', { class: 'login-wrap' },
     h('div', { class: 'login-card' },
       marca('login-marca'),
-      h('h1', {}, 'Beso de Café'),
+      h('h1', {}, 'Beso', h('br'), 'de Café'),
       h('p', { class: 'sub' }, 'Punto de venta y gestión interna'),
       form
     )

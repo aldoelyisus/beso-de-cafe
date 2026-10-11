@@ -112,8 +112,10 @@ class Nodo {
   }
   replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
 
-  set innerHTML(v) { if (v === '') this.children = []; }
-  get innerHTML() { return ''; }
+  // Se guarda el HTML crudo (los iconos SVG entran por aquí) para que una
+  // prueba pueda serializar el árbol y verlo pintado de verdad.
+  set innerHTML(v) { this.children = []; this._html = v === '' ? null : v; }
+  get innerHTML() { return this._html || ''; }
 
   get textContent() {
     if (this._text != null) return this._text;
