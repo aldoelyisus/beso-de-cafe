@@ -20,6 +20,17 @@ Module._load = function (request, ...rest) {
       ipcMain: { handle: (canal, fn) => handlers.set(canal, fn) },
       app: undefined,          // no se usa: BESO_DB_PATH manda en las pruebas
       BrowserWindow: class {},
+      // Para las pruebas de interfaz (test/frontend/): el preload real usa
+      // esto para exponer `window.api`, y aquí lo enruta al mismo `handlers`
+      // que captura ipcMain arriba — la misma vuelta que da un IPC real.
+      contextBridge: { exposeInMainWorld: (name, api) => { global.window = global.window || {}; global.window[name] = api; } },
+      ipcRenderer: {
+        invoke: async (canal, payload) => {
+          const fn = handlers.get(canal);
+          if (!fn) throw new Error(`El canal "${canal}" no existe.`);
+          return fn({}, payload);
+        },
+      },
     };
   }
   return origLoad.call(this, request, ...rest);

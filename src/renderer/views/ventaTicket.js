@@ -344,7 +344,7 @@ export async function VentaTicketView(root, idParam) {
         h('div', { class: 'row' }, h('span', {}, 'Subtotal'), h('span', {}, money(venta.total))),
         h('div', { class: 'row', style: 'color:var(--ok)' },
           h('span', {}, 'Promo: ' + esc(venta.promocion_nombre || ''),
-            !readOnly && venta.estado === 'abierta' && venta.pagos.length === 0
+            !readOnly && venta.estado === 'abierta' && venta.pagos.length === 0 && can('promociones.aplicar')
               ? h('button', { class: 'btn ghost small', style: 'margin-left:6px', onclick: () => quitarPromo() }, 'quitar') : null),
           h('span', {}, '−' + money(venta.descuento))),
         venta.promocion_id && !venta.promocion_aplica

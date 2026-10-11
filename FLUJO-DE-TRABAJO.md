@@ -441,8 +441,34 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo | `test/reportes/reporteService.test.js` | ✅ 18 |
 | Respaldos: crear, listar, poda por rotación, restaurar, verificar integridad | `test/backup/backupService.test.js` | ✅ 9 |
 | Seguridad: matriz de permisos de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 6 |
+| Interfaz: que los botones solo se vean con el permiso correspondiente | `test/frontend/permisosVisibilidad.test.js` | ✅ 4 |
 
-**Total: 331 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 335 pruebas. Toda la lógica de negocio cubierta.**
+
+### Auditoría de permisos en el frontend *(2026-10-10)*
+
+La dueña pidió revisar que **cada botón respete su permiso**: visible si lo tienes, oculto si no.
+Se repasó `can(...)` contra el mapa completo canal→permiso de `src/main/ipc/index.js`, archivo por
+archivo.
+
+- **Se encontró y corrigió un caso real**: en el ticket de venta (`ventaTicket.js`), el botón
+  **"quitar"** de una promoción aplicada no comprobaba `can('promociones.aplicar')` — cualquiera
+  con `ventas.crear` lo veía, aunque el canal `ventas:quitarPromocion` sí exigía ese permiso por su
+  cuenta. Un cajero sin ese permiso lo habría visto, tocado, y le habría salido "no tienes permiso".
+- El resto del sistema (insumos, categorías, productos, modificadores, mesas, promociones, roles,
+  usuarios, caja, respaldos) ya estaba correctamente gateado.
+- **Infraestructura nueva, permanente** (antes solo vivía en scripts sueltos del scratchpad):
+  `test/helpers/dom.js` (shim mínimo de DOM para renderizar las vistas reales sin Chromium) y
+  `test/helpers/vistaEsm.js` (copia `src/renderer` a una carpeta temporal con
+  `package.json {"type":"module"}` para poder `import()` sus módulos ES desde una prueba
+  CommonJS). `test/helpers/ipc.js` ahora también expone `contextBridge`/`ipcRenderer`, así que una
+  prueba puede requerir el `preload` real y usar `window.api` tal cual lo usa el renderer.
+- **Ojo con `beforeEach` de nivel de archivo**: `scripts/run-tests.js` corre **todos** los archivos
+  de prueba en un solo proceso, así que un `beforeEach`/`afterEach` declarado fuera de un
+  `describe()` se aplica a la suite ENTERA, no solo a ese archivo (pasó aquí: un `beforeEach` que
+  sembraba el sistema hacía que las pruebas de mesas de `ventaService.test.js` chocaran con "Ya
+  existe una mesa con ese nombre"). La convención del proyecto es montar el sistema con una función
+  que cada `test()` llama a mano (ver `test/seguridad/*.test.js` y `test/frontend/*.test.js`).
 
 Las pruebas de `test/seguridad/` corren contra la **capa IPC real** (`test/helpers/ipc.js`
 sustituye `electron` por un doble y captura los canales que registra `registerIpc()`), así que
