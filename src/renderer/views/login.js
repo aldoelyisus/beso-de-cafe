@@ -34,7 +34,7 @@ export function LoginView(onSuccess) {
     h('div', { class: 'login-card' },
       marca('login-marca'),
       h('h1', {}, 'Beso', h('br'), 'de Café'),
-      h('p', { class: 'sub' }, 'Punto de venta y gestión interna · v2 PARCHE'),
+      h('p', { class: 'sub' }, 'Punto de venta y gestión interna'),
       form
     )
   );
