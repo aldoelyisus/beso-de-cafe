@@ -49,10 +49,21 @@ function carpetaDatos() {
   return process.env.BESO_DATOS_PATH || app.getPath('userData');
 }
 
-function carpetaRespaldos() {
+/** Dónde van las copias del código. `crear` solo cuando de verdad se va a escribir. */
+function carpetaRespaldos({ crear = false } = {}) {
   const dir = path.join(carpetaDatos(), 'respaldos-codigo');
-  fs.mkdirSync(dir, { recursive: true });
+  if (crear) fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/** Las copias que hay, de la más nueva a la más vieja. Nunca crea nada. */
+function copiasGuardadas() {
+  try {
+    const dir = carpetaRespaldos();
+    return fs.readdirSync(dir)
+      .filter((n) => fs.statSync(path.join(dir, n)).isDirectory())
+      .sort().reverse();
+  } catch { return []; }
 }
 function archivoHistorial() { return path.join(carpetaDatos(), 'actualizaciones.json'); }
 
@@ -124,7 +135,7 @@ function leerActualizacion(rutaArchivo) {
 /** Copia a la carpeta de respaldos los archivos que la actualización va a pisar. */
 function respaldarAntes(raiz, rutas) {
   const sello = new Date().toISOString().replace(/[:.]/g, '-');
-  const destino = path.join(carpetaRespaldos(), sello);
+  const destino = path.join(carpetaRespaldos({ crear: true }), sello);
   try {
     for (const rel of rutas) {
       const origen = path.join(raiz, rel);
@@ -149,10 +160,7 @@ function respaldarAntes(raiz, rutas) {
 
 function podarRespaldos() {
   const dir = carpetaRespaldos();
-  const sobran = fs.readdirSync(dir)
-    .filter((n) => fs.statSync(path.join(dir, n)).isDirectory())
-    .sort().reverse()
-    .slice(MAX_RESPALDOS);
+  const sobran = copiasGuardadas().slice(MAX_RESPALDOS);
   for (const n of sobran) {
     try { fs.rmSync(path.join(dir, n), { recursive: true, force: true }); } catch { /* ya no está */ }
   }
@@ -200,9 +208,7 @@ function aplicar(rutaArchivo, { raiz = raizApp() } = {}) {
 /** Deshace la última actualización, dejando el código como estaba antes. */
 function revertir({ raiz = raizApp() } = {}) {
   const dir = carpetaRespaldos();
-  const copias = fs.readdirSync(dir)
-    .filter((n) => fs.statSync(path.join(dir, n)).isDirectory())
-    .sort().reverse();
+  const copias = copiasGuardadas();
   if (!copias.length) throw new Error('No hay ninguna actualización que deshacer.');
 
   const ultima = path.join(dir, copias[0]);
@@ -229,16 +235,12 @@ function revertir({ raiz = raizApp() } = {}) {
 }
 
 function estado() {
-  const dir = carpetaRespaldos();
-  const copias = fs.existsSync(dir)
-    ? fs.readdirSync(dir).filter((n) => fs.statSync(path.join(dir, n)).isDirectory())
-    : [];
   return {
     version: app && app.getVersion ? app.getVersion() : require('../../../package.json').version,
     // En desarrollo la "carpeta del programa" es el repositorio: aplicar una
     // actualización ahí pisaría el código fuente de verdad.
     instalada: !!(app && app.isPackaged),
-    sePuedeDeshacer: copias.length > 0,
+    sePuedeDeshacer: copiasGuardadas().length > 0,
     historial: historial().slice(0, 10),
   };
 }
