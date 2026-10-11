@@ -1,4 +1,5 @@
 import { h, field } from '../lib/ui.js';
+import { marca } from '../components/icons.js';
 
 export function LoginView(onSuccess) {
   const username = h('input', { type: 'text', autocomplete: 'username', autofocus: true });
@@ -31,8 +32,8 @@ export function LoginView(onSuccess) {
 
   return h('div', { class: 'login-wrap' },
     h('div', { class: 'login-card' },
-      h('div', { class: 'login-logo' }, '☕'),
-      h('h1', {}, 'BESO DE CAFÉ'),
+      marca('login-marca'),
+      h('h1', {}, 'Beso de Café'),
       h('p', { class: 'sub' }, 'Punto de venta y gestión interna'),
       form
     )

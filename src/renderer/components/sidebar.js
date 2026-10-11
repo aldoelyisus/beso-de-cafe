@@ -1,5 +1,6 @@
 import { h } from '../lib/ui.js';
 import { getSession, currentUser } from '../lib/store.js';
+import { icono, marca, chevron } from './icons.js';
 
 /**
  * Menú lateral. Se construye a partir de `session.menu`, que el proceso
@@ -41,7 +42,7 @@ export function Sidebar(currentRoute, onLogout) {
         href: subs[0].route,
         class: 'nav-link' + (subs[0].route === currentRoute ? ' active' : ''),
       },
-        h('span', { class: 'ico' }, mod.icon || '•'),
+        icono(mod.icon),
         h('span', { class: 'lbl' }, mod.label),
       ));
       continue;
@@ -57,9 +58,9 @@ export function Sidebar(currentRoute, onLogout) {
         group.classList.toggle('open', abrir);
       },
     },
-      h('span', { class: 'ico' }, mod.icon || '•'),
+      icono(mod.icon),
       h('span', { class: 'lbl' }, mod.label),
-      h('span', { class: 'chev' }, '▸'),
+      h('span', { class: 'chev', html: chevron() }),
     );
     const sub = h('div', { class: 'nav-sub' },
       ...subs.map((s) => h('a', {
@@ -73,8 +74,8 @@ export function Sidebar(currentRoute, onLogout) {
 
   return h('aside', { class: 'sidebar' },
     h('div', { class: 'brand' },
-      h('span', { class: 'dot' }, '☕'),
-      h('strong', {}, 'BESO DE CAFÉ'),
+      marca('brand-marca'),
+      h('strong', {}, 'Beso de Café'),
     ),
     nav,
     h('div', { class: 'spacer' }),

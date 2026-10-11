@@ -1,6 +1,7 @@
 import { h, esc, toast, openModal, confirmDialog, field, agregar } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 import { SearchBox, ChipRow } from '../components/filters.js';
+import { icono } from '../components/icons.js';
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -43,7 +44,7 @@ export async function VentaTicketView(root, idParam) {
       venta.estado === 'abierta' && can('ventas.crear')
         ? h('div', { class: 'row-actions' },
             venta.tipo === 'mesa'
-              ? h('button', { class: 'btn secondary', onclick: () => pasarALlevar() }, '🥤 Pasar a llevar')
+              ? h('button', { class: 'btn secondary', onclick: () => pasarALlevar() }, 'Pasar a llevar')
               : null,
             mesasDisponibles().length
               ? h('button', { class: 'btn secondary', onclick: () => moverAMesa() },
@@ -165,7 +166,7 @@ export async function VentaTicketView(root, idParam) {
         // La foto manda: el cajero elige de un vistazo, sin leer.
         p.foto
           ? h('img', { class: 'prod-foto', src: p.foto, alt: '', loading: 'lazy' })
-          : h('div', { class: 'prod-foto vacia' }, '📷'),
+          : h('div', { class: 'prod-foto vacia' }, icono('foto', 'ico-foto')),
         p.agotado ? h('span', { class: 'prod-agotado' }, 'Agotado') : null,
         h('span', { class: 'n' }, esc(p.nombre)),
         h('span', { class: 'p' },

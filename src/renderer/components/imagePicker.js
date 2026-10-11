@@ -1,4 +1,5 @@
 import { h } from '../lib/ui.js';
+import { icono } from './icons.js';
 
 /**
  * Selector de foto para el producto.
@@ -70,7 +71,7 @@ export function ImagePicker({ valor = '', onChange, etiqueta = 'Elegir foto…' 
       vista.appendChild(h('img', { src: actual, alt: 'Foto del producto' }));
       estado.textContent = 'Se guarda reducida a 640 px para que la aplicación siga ligera.';
     } else {
-      vista.appendChild(h('div', { class: 'foto-vacia' }, '📷'));
+      vista.appendChild(h('div', { class: 'foto-vacia' }, icono('foto', 'ico-foto')));
       estado.textContent = 'Obligatoria: en el punto de venta el producto se reconoce por su foto.';
     }
   }

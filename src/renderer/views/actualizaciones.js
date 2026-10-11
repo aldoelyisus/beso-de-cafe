@@ -35,7 +35,7 @@ export async function ActualizacionesView(root) {
     card.appendChild(h('p', { style: 'margin-top:14px' },
       'Cuando te manden un archivo de actualización (por WhatsApp o en una USB), guárdalo en la computadora y ábrelo con este botón. Te va a decir qué trae antes de hacer nada.'));
     card.appendChild(h('div', { class: 'caja-acciones' },
-      h('button', { class: 'btn', onclick: (e) => elegirArchivo(e.target) }, '⬆️ Abrir archivo de actualización'),
+      h('button', { class: 'btn', onclick: (e) => elegirArchivo(e.target) }, 'Abrir archivo de actualización'),
       estado.sePuedeDeshacer
         ? h('button', { class: 'btn secondary small', onclick: (e) => deshacer(e.target) }, 'Deshacer la última')
         : null));

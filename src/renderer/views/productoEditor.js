@@ -2,6 +2,7 @@ import { h, esc, toast, openModal, confirmDialog, field } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 import { RecetaEditor } from '../components/recetaEditor.js';
 import { ImagePicker } from '../components/imagePicker.js';
+import { icono } from '../components/icons.js';
 
 const money = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
@@ -89,7 +90,7 @@ export async function ProductoEditorView(root, idParam) {
       field('Descripción', descripcion),
       h('div', { class: 'section-title' }, 'Foto'),
       editable ? foto.element : h('div', { class: 'foto-vista' },
-        producto.foto ? h('img', { src: producto.foto, alt: '' }) : h('div', { class: 'foto-vacia' }, '📷')),
+        producto.foto ? h('img', { src: producto.foto, alt: '' }) : h('div', { class: 'foto-vacia' }, icono('foto', 'ico-foto'))),
       modChecks.length ? h('div', { class: 'section-title' }, 'Modificadores que admite') : null,
       ...modChecks.map((c) => c.el),
       editable ? h('div', { style: 'margin-top:12px' }, h('button', {

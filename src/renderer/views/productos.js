@@ -3,6 +3,7 @@ import { can } from '../lib/store.js';
 import { Pager } from '../components/pager.js';
 import { ImagePicker } from '../components/imagePicker.js';
 import { SearchBox, ChipRow, Toggle, sortableTh } from '../components/filters.js';
+import { icono } from '../components/icons.js';
 
 const PAGE_SIZE = 15;
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -91,7 +92,7 @@ export async function ProductosView(root) {
         h('div', { class: 'prod-fila' },
           p.foto
             ? h('img', { class: 'prod-mini', src: p.foto, alt: '' })
-            : h('div', { class: 'prod-mini vacia', title: 'Sin foto' }, '📷'),
+            : h('div', { class: 'prod-mini vacia', title: 'Sin foto' }, icono('foto', 'ico-foto')),
           h('div', {},
             h('strong', {}, esc(p.nombre)),
             p.agotado ? h('span', { class: 'badge off', style: 'margin-left:8px' }, 'Agotado') : null

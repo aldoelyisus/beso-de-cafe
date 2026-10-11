@@ -24,7 +24,7 @@ const MODULES = [
   {
     key: 'users',
     label: 'Usuarios y personal',
-    icon: '\u{1F465}', // 👥
+    icon: 'users',
     route: '#/users',
     order: 40,
     section: 'administracion',
@@ -45,7 +45,7 @@ const MODULES = [
   {
     key: 'roles',
     label: 'Roles y permisos',
-    icon: '\u{1F510}', // 🔐
+    icon: 'roles',
     route: '#/roles',
     order: 20,
     hiddenFromMenu: true, // se accede desde el submódulo de "Usuarios y personal"
@@ -60,7 +60,7 @@ const MODULES = [
   {
     key: 'inventory',
     label: 'Inventario',
-    icon: '\u{1F4E6}', // 📦
+    icon: 'inventario',
     route: '#/insumos',
     order: 25,
     section: 'catalogo',
@@ -75,7 +75,7 @@ const MODULES = [
   {
     key: 'insumos',
     label: 'Insumos',
-    icon: '\u{1F950}', // 🥐
+    icon: 'insumos',
     route: '#/insumos',
     order: 26,
     hiddenFromMenu: true, // se accede desde "Inventario"
@@ -92,7 +92,7 @@ const MODULES = [
   {
     key: 'insumo_categorias',
     label: 'Categorías de insumos',
-    icon: '\u{1F3F7}', // 🏷️
+    icon: 'insumo_categorias',
     route: '#/insumo-categorias',
     order: 27,
     hiddenFromMenu: true,
@@ -107,7 +107,7 @@ const MODULES = [
   {
     key: 'menu',
     label: 'Menú y recetas',
-    icon: '\u{1F9CB}', // 🧋
+    icon: 'menu',
     route: '#/productos',
     order: 20,
     section: 'catalogo',
@@ -123,7 +123,7 @@ const MODULES = [
   {
     key: 'productos',
     label: 'Productos',
-    icon: '\u{2615}', // ☕
+    icon: 'productos',
     route: '#/productos',
     order: 16,
     hiddenFromMenu: true,
@@ -140,7 +140,7 @@ const MODULES = [
   {
     key: 'producto_categorias',
     label: 'Categorías de productos',
-    icon: '\u{1F4D1}', // 📑
+    icon: 'producto_categorias',
     route: '#/producto-categorias',
     order: 17,
     hiddenFromMenu: true,
@@ -155,7 +155,7 @@ const MODULES = [
   {
     key: 'modificadores',
     label: 'Modificadores',
-    icon: '\u{2795}', // ➕
+    icon: 'modificadores',
     route: '#/modificadores',
     order: 18,
     hiddenFromMenu: true,
@@ -170,7 +170,7 @@ const MODULES = [
   {
     key: 'ventas',
     label: 'Ventas',
-    icon: '\u{1F4B5}', // 💵
+    icon: 'ventas',
     route: '#/pos',
     order: 5,
     section: 'operacion',
@@ -191,7 +191,7 @@ const MODULES = [
   {
     key: 'caja',
     label: 'Corte de caja',
-    icon: '\u{1F4B0}', // 💰
+    icon: 'caja',
     route: '#/caja',
     order: 8,
     hiddenFromMenu: true,
@@ -205,7 +205,7 @@ const MODULES = [
   {
     key: 'promociones',
     label: 'Promociones',
-    icon: '\u{1F3F7}', // 🏷️
+    icon: 'promociones',
     route: '#/promociones',
     order: 7,
     hiddenFromMenu: true,
@@ -221,7 +221,7 @@ const MODULES = [
   {
     key: 'mesas',
     label: 'Mesas',
-    icon: '\u{1FA91}', // 🪑
+    icon: 'mesas',
     route: '#/mesas',
     order: 6,
     hiddenFromMenu: true,
@@ -236,7 +236,7 @@ const MODULES = [
   {
     key: 'reportes',
     label: 'Reportes',
-    icon: '\u{1F4CA}', // 📊
+    icon: 'reportes',
     route: '#/reportes',
     order: 10,
     section: 'operacion',
@@ -249,7 +249,7 @@ const MODULES = [
   {
     key: 'respaldos',
     label: 'Respaldos',
-    icon: '\u{1F4BE}', // 💾
+    icon: 'respaldos',
     route: '#/respaldos',
     order: 45,
     section: 'administracion',
@@ -262,7 +262,7 @@ const MODULES = [
   {
     key: 'actualizaciones',
     label: 'Actualizar el programa',
-    icon: '\u{2B06}\u{FE0F}', // ⬆️
+    icon: 'actualizaciones',
     route: '#/actualizaciones',
     order: 46,
     section: 'administracion',
@@ -275,7 +275,7 @@ const MODULES = [
   {
     key: 'logs',
     label: 'Bitácora del sistema',
-    icon: '\u{1F4DC}', // 📜
+    icon: 'logs',
     route: '#/logs',
     order: 50,
     section: 'administracion',

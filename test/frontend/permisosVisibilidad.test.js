@@ -117,12 +117,12 @@ test('respaldos: el botón "Hacer un respaldo" solo se ve con respaldos.crear', 
   await comoUsuarioCon(store, ['respaldos.view']);
   const sinPermiso = new dom.Nodo('main');
   await RespaldosView(sinPermiso);
-  assert.equal(sinPermiso.boton('💾 Hacer un respaldo'), null, 'sin respaldos.crear no debe verse el botón');
+  assert.equal(sinPermiso.boton('Hacer un respaldo'), null, 'sin respaldos.crear no debe verse el botón');
 
   await comoUsuarioCon(store, ['respaldos.view', 'respaldos.crear']);
   const conPermiso = new dom.Nodo('main');
   await RespaldosView(conPermiso);
-  assert.ok(conPermiso.boton('💾 Hacer un respaldo'), 'con respaldos.crear debe verse el botón');
+  assert.ok(conPermiso.boton('Hacer un respaldo'), 'con respaldos.crear debe verse el botón');
 });
 
 test('usuarios: nadie ve "Permisos"/"Desactivar" en su PROPIA fila, aunque tenga el permiso', async () => {

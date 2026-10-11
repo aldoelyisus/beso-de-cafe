@@ -5,15 +5,20 @@
   --ink: #1a1a1a;
   --ink-soft: #5b554d;
   --line: #e3ddd2;
-  --brand: #1a1a1a;
-  --accent: #6f4e37;
+  --brand: #3b2418;          /* café tostado: la barra y la marca */
+  --accent: #7a5440;
+  --accent-ink: #5c3d2c;     /* el café sobre crema, ya con contraste de texto */
   --accent-soft: #efe7df;
-  --danger: #b23b3b;
-  --danger-soft: #f6e5e3;
-  --ok: #3c7a4b;
+  --danger: #a93636;
+  --danger-soft: #f7e7e5;
+  --ok: #2f6b43;
   --radius: 10px;
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  /* Sombras con desplazamiento y difuminado: profundidad, no halo. */
+  --shadow: 0 1px 2px rgba(59, 36, 24, .05), 0 4px 12px -4px rgba(59, 36, 24, .10);
+  --shadow-alta: 0 2px 4px rgba(59, 36, 24, .06), 0 12px 28px -8px rgba(59, 36, 24, .18);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Los números de dinero se alinean en columna aunque cambien de dígito. */
+  font-variant-numeric: tabular-nums;
 }
 
 * { box-sizing: border-box; }
@@ -23,7 +28,33 @@ body { background: var(--bg); color: var(--ink); font-size: 14px; }
 
 button { font: inherit; cursor: pointer; }
 input, select { font: inherit; }
-a { color: var(--accent); }
+a { color: var(--accent-ink); text-underline-offset: 3px; }
+
+/* Lo que el navegador pinta por omisión y no pertenece a ningún diseño:
+   selección, cursor de texto, anillo de foco y barras de desplazamiento. */
+::selection { background: #d9c4b4; color: var(--brand); }
+input, textarea { caret-color: var(--accent); }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.sidebar :focus-visible { outline-color: #d9c4b4; }
+* { scrollbar-width: thin; scrollbar-color: #cdc3b6 transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-thumb {
+  background: #cdc3b6; border-radius: 99px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #b6a996; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* El set de iconos: misma caja, mismo trazo, heredan el color del texto. */
+.ico, .marca, .chev { display: inline-flex; flex: 0 0 auto; }
+.ico svg { width: 19px; height: 19px; }
+.ico-foto { color: #b8ab9b; display: inline-flex; }
+.ico-foto svg { width: 42%; height: 42%; min-width: 18px; min-height: 18px; stroke-width: 1.4; }
+.chev svg { width: 14px; height: 14px; }
 
 /* ---------- Botones ---------- */
 .btn {
@@ -53,18 +84,13 @@ a { color: var(--accent); }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
-  box-shadow: var(--shadow);
-  padding: 32px 28px;
+  box-shadow: var(--shadow-alta);
+  padding: 36px 30px;
   text-align: center;
 }
-.login-logo {
-  width: 84px; height: 84px; border-radius: 50%;
-  border: 1px solid var(--line);
-  display: grid; place-items: center;
-  margin: 0 auto 14px;
-  font-size: 34px;
-}
-.login-card h1 { font-size: 18px; letter-spacing: .14em; margin: 0 0 2px; }
+.login-marca { display: block; margin: 0 auto 16px; color: var(--accent); }
+.login-marca svg { width: 60px; height: 60px; stroke-width: 1.2; }
+.login-card h1 { font-size: 23px; letter-spacing: -.02em; margin: 0 0 4px; font-weight: 600; }
 .login-card p.sub { color: var(--ink-soft); margin: 0 0 22px; font-size: 12.5px; }
 
 .field { text-align: left; margin-bottom: 14px; }
@@ -90,7 +116,7 @@ a { color: var(--accent); }
 /* ---------- Shell ---------- */
 .shell { display: grid; grid-template-columns: 248px 1fr; height: 100%; }
 .sidebar {
-  background: var(--ink);
+  background: var(--brand);
   color: #e9e4da;
   display: flex;
   flex-direction: column;
@@ -104,13 +130,14 @@ a { color: var(--accent); }
   border-bottom: 1px solid rgba(255,255,255,.12);
   margin-bottom: 10px;
 }
-.sidebar .brand .dot { width: 30px; height: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 16px; }
-.sidebar .brand strong { font-size: 13px; letter-spacing: .12em; }
+.sidebar .brand-marca { color: #e8d9c8; }
+.sidebar .brand-marca svg { width: 28px; height: 28px; stroke-width: 1.3; }
+.sidebar .brand strong { font-size: 15px; letter-spacing: -.01em; font-weight: 600; }
 
 .nav { display: flex; flex-direction: column; gap: 1px; }
 .nav-section {
   font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-  color: #7d766a; padding: 15px 10px 5px;
+  color: #a39889; padding: 15px 10px 5px;
 }
 .nav-section:first-child { padding-top: 2px; }
 
@@ -164,7 +191,6 @@ a { color: var(--accent); }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   overflow: hidden;
 }
 table { width: 100%; border-collapse: collapse; }
@@ -193,7 +219,7 @@ tbody tr:hover { background: var(--surface-2); }
   border-radius: 14px;
   width: 100%; max-width: 460px;
   max-height: 90vh; overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-alta);
 }
 .modal.wide { max-width: 620px; }
 .modal-head { padding: 18px 22px; border-bottom: 1px solid var(--line); font-size: 16px; font-weight: 600; }
@@ -455,7 +481,7 @@ th.sortable.sorted .caret { opacity: 1; }
 
 .pcard {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 16px;
+  padding: 18px 20px; margin-bottom: 16px;
 }
 .pcard h3 { margin: 0 0 12px; font-size: 15px; }
 

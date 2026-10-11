@@ -39,7 +39,7 @@ export async function RespaldosView(root) {
   const card = h('div', { class: 'pcard' },
     h('p', {}, 'Se abre el explorador de Windows para que elijas la carpeta. Hazlo seguido, sobre todo antes de algo importante, y de vez en cuando guarda uno en una USB o en otro equipo — si solo vive en esta laptop, no sirve de nada si la laptop se pierde o se daña.'),
     can('respaldos.crear')
-      ? h('button', { class: 'btn', onclick: (e) => hacerRespaldo(e.target) }, '💾 Hacer un respaldo')
+      ? h('button', { class: 'btn', onclick: (e) => hacerRespaldo(e.target) }, 'Hacer un respaldo')
       : h('div', { class: 'empty' }, 'No tienes permiso para hacer respaldos.'),
     resultado
   );
