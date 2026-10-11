@@ -13,6 +13,12 @@
 const Module = require('module');
 
 const handlers = new Map();
+// Respuesta que da el selector de carpeta la próxima vez que se use
+// (respaldos:crear lo abre). Por omisión "cancela": así una prueba que no
+// lo configure a propósito no se queda esperando un diálogo real.
+let respuestaDialogo = { canceled: true, filePaths: [] };
+function setCarpetaElegida(ruta) { respuestaDialogo = { canceled: false, filePaths: [ruta] }; }
+function setDialogoCancelado() { respuestaDialogo = { canceled: true, filePaths: [] }; }
 const origLoad = Module._load;
 Module._load = function (request, ...rest) {
   if (request === 'electron') {
@@ -31,6 +37,7 @@ Module._load = function (request, ...rest) {
           return fn({}, payload);
         },
       },
+      dialog: { showOpenDialog: async () => respuestaDialogo },
     };
   }
   return origLoad.call(this, request, ...rest);
@@ -61,4 +68,4 @@ async function entrar(username, password) {
   return callOk('auth:login', { username, password });
 }
 
-module.exports = { call, callOk, entrar, handlers, session };
+module.exports = { call, callOk, entrar, handlers, session, setCarpetaElegida, setDialogoCancelado };

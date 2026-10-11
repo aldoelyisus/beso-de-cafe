@@ -61,8 +61,7 @@ const ACTION_LABELS = {
   'caja.cerrar': 'Turno de caja cerrado',
   'cierre.dia': 'Día cerrado',
   'cierre.reabrir': 'Día reabierto',
-  'respaldos.crear': 'Respaldo manual creado',
-  'respaldos.restaurar': 'Base de datos restaurada desde un respaldo',
+  'respaldos.crear': 'Respaldo manual guardado',
 };
 
 function actionLabel(a) {
@@ -72,7 +71,6 @@ function actionLabel(a) {
 function actionBadge(a) {
   if (a.endsWith('.failed')) return 'off';
   if (a === 'auth.login.success') return 'on';
-  if (a === 'respaldos.restaurar') return 'off'; // evento delicado: que resalte en la bitácora
   return 'inherit';
 }
 

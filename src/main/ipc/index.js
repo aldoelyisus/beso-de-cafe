@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcMain, app } = require('electron');
+const { ipcMain, dialog } = require('electron');
 const session = require('../security/session');
 
 const authService = require('../services/authService');
@@ -678,29 +678,19 @@ function registerIpc() {
   });
 
   // ============ Respaldos ============
-  handle('respaldos:list', { permission: 'respaldos.view' }, () => backupService.listRespaldos());
-  handle('respaldos:info', { permission: 'respaldos.view' }, () => ({
-    carpeta: backupService.backupsDir(),
-    maxAutomaticos: backupService.MAX_AUTOMATICOS,
-  }));
+  // Un respaldo a la vez, a la carpeta que la persona elija en su propia
+  // computadora: el explorador de Windows es más claro que una pantalla con
+  // historial, y así se puede guardar directo en una USB.
   handle('respaldos:crear', { permission: 'respaldos.crear' }, async () => {
-    const r = await backupService.crearRespaldo({ tipo: 'manual' });
-    audit('respaldos.crear', `Respaldo manual: ${r.archivo} (${r.tamano} bytes)`);
-    return r;
-  });
-  handle('respaldos:restaurar', { permission: 'respaldos.restaurar' }, async ({ archivo }) => {
-    await backupService.restaurarRespaldo(archivo);
-    audit('respaldos.restaurar', `Restauró la base de datos desde: ${archivo}`);
-    // La conexión ya quedó abierta contra el archivo nuevo, pero cualquier
-    // caché en memoria (sesión, catálogos ya cargados en el renderer) sigue
-    // reflejando la base VIEJA. Reiniciar todo el proceso es lo único que
-    // garantiza que arranque limpio contra los datos restaurados.
-    // (`app` no existe en las pruebas, que sustituyen el módulo `electron`
-    // por un doble sin ventanas reales: ahí simplemente no hay nada que reiniciar.)
-    if (app && typeof app.relaunch === 'function') {
-      setTimeout(() => { app.relaunch(); app.exit(0); }, 400);
-    }
-    return { reiniciando: true };
+    const res = await dialog.showOpenDialog({
+      title: 'Elige dónde guardar el respaldo',
+      buttonLabel: 'Guardar aquí',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || !res.filePaths.length) return { cancelado: true };
+    const r = await backupService.crearRespaldoEn(res.filePaths[0]);
+    audit('respaldos.crear', `Respaldo guardado en: ${r.ruta} (${r.tamano} bytes)`);
+    return { cancelado: false, ...r };
   });
 }
 

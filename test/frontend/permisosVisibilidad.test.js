@@ -110,24 +110,19 @@ test('productoEditor: precio, receta y edit son independientes (ver solo lo que 
   }
 });
 
-test('respaldos: "crear" y "restaurar" se ven cada uno solo con su propio permiso', async () => {
+test('respaldos: el botón "Hacer un respaldo" solo se ve con respaldos.crear', async () => {
   const { store } = await montar();
   const { RespaldosView } = await cargarVista('views/respaldos.js');
-  d(await call('respaldos:crear', {})); // que haya al menos uno en la lista
 
-  const casos = [
-    { permisos: [], crear: false, restaurar: false },
-    { permisos: ['respaldos.crear'], crear: true, restaurar: false },
-    { permisos: ['respaldos.restaurar'], crear: false, restaurar: true },
-    { permisos: ['respaldos.crear', 'respaldos.restaurar'], crear: true, restaurar: true },
-  ];
-  for (const { permisos, crear, restaurar } of casos) {
-    await comoUsuarioCon(store, ['respaldos.view', ...permisos]);
-    const cont = new dom.Nodo('main');
-    await RespaldosView(cont);
-    assert.equal(!!cont.boton('💾 Hacer un respaldo ahora'), crear, `[${permisos.join(',') || 'nada'}]: "Hacer un respaldo ahora"`);
-    assert.equal(!!cont.boton('Restaurar'), restaurar, `[${permisos.join(',') || 'nada'}]: "Restaurar"`);
-  }
+  await comoUsuarioCon(store, ['respaldos.view']);
+  const sinPermiso = new dom.Nodo('main');
+  await RespaldosView(sinPermiso);
+  assert.equal(sinPermiso.boton('💾 Hacer un respaldo'), null, 'sin respaldos.crear no debe verse el botón');
+
+  await comoUsuarioCon(store, ['respaldos.view', 'respaldos.crear']);
+  const conPermiso = new dom.Nodo('main');
+  await RespaldosView(conPermiso);
+  assert.ok(conPermiso.boton('💾 Hacer un respaldo'), 'con respaldos.crear debe verse el botón');
 });
 
 test('usuarios: nadie ve "Permisos"/"Desactivar" en su PROPIA fila, aunque tenga el permiso', async () => {

@@ -4,7 +4,7 @@
 > usuario por cada permiso, a solas, y se abre cada pantalla de verdad. Si cambias los
 > permisos, vuelve a correr `scratchpad/qa-permiso-por-permiso.js` y regenera este archivo.
 
-**56 permisos.** Clave: `<modulo>.<accion>`.
+**55 permisos.** Clave: `<modulo>.<accion>`.
 
 ## Cómo leerlos
 
@@ -152,9 +152,8 @@ submódulos: **Insumos o Categorías de insumos**.
 
 | Permiso | Qué habilita | Pantalla que abre | Botones que enseña |
 |---|---|---|---|
-| `respaldos.view` | Ver la pantalla de respaldos y el historial | `#/respaldos` | — |
-| `respaldos.crear` | Hacer un respaldo manual ahora | — | Respaldos |
-| `respaldos.restaurar` | Restaurar la base de datos desde un respaldo | — | Respaldos |
+| `respaldos.view` | Ver la pantalla de respaldos | `#/respaldos` | — |
+| `respaldos.crear` | Hacer un respaldo manual de la base de datos | — | Respaldos |
 
 ### Bitácora del sistema
 
@@ -195,7 +194,6 @@ Administrador       todos
 | `productos.edit` sin `productos.precio` | Edita nombre, tamaños y "agotado", pero no toca precios. |
 | Solo `ventas.list` | Ve el **historial con el dinero del día** sin poder vender. Es una pantalla aparte, no el listado del punto de venta. |
 | `mesas.view` a un cajero | **No hace falta.** El mapa de mesas del punto de venta va con `ventas.view`; `mesas.view` es para *configurar* las mesas. |
-| `respaldos.crear` sin `respaldos.restaurar` | Puede hacer respaldos manuales, pero **no** puede restaurar ninguno. Separados a propósito: restaurar reemplaza toda la base, es del nivel de la dueña. |
 
 ## Reglas que el sistema aplica solo
 
@@ -206,8 +204,5 @@ Administrador       todos
   de los permisos del rol y desde ahí es independiente.
 - **Los permisos nuevos no aplican a una sesión ya abierta**: hay que volver a entrar.
 - **Si desactivan a alguien mientras trabaja**, deja de operar en ese momento.
-- **Restaurar un respaldo reinicia la aplicación sola** al terminar (antes guarda una copia de
-  "cómo estaba todo" por si fue un error). Nadie se queda con la sesión abierta viendo datos
-  viejos a medias.
 - Toda la validación vive en `src/main/ipc/index.js`. Ocultar un botón es solo cortesía:
   aunque alguien llegue tecleando la URL, el canal lo rechaza igual.

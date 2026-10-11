@@ -254,9 +254,8 @@ const MODULES = [
     order: 45,
     section: 'administracion',
     permissions: [
-      { action: 'view', label: 'Ver la pantalla de respaldos y el historial' },
-      { action: 'crear', label: 'Hacer un respaldo manual ahora' },
-      { action: 'restaurar', label: 'Restaurar la base de datos desde un respaldo' },
+      { action: 'view', label: 'Ver la pantalla de respaldos' },
+      { action: 'crear', label: 'Hacer un respaldo manual de la base de datos' },
     ],
     submodules: [],
   },

@@ -382,34 +382,26 @@ los productos cancelados no suman.
 
 ---
 
-## FASE 12 — Respaldos y resistencia a fallos  ✅ HECHO
-*(Documento §2)*
+## FASE 12 — Respaldos  ✅ HECHO
+*(Documento §2 — alcance recortado a propósito, a pedido de la dueña: "solo sacar respaldos
+manuales, un botón para sacar el respaldo y que se guarde en una carpeta de la computadora")*
 
-- [x] **Respaldo automático y local**: uno por día al abrir la app, con el *backup en línea* de
-      SQLite (`db.backup()`) — no una copia de bytes del archivo, que en modo WAL podría agarrarlo
-      a la mitad de una escritura. Carpeta aparte (`respaldos/`, junto al `.db`), se conservan los
-      últimos 30 (`MAX_AUTOMATICOS`, ~1 mes); no bloquea el arranque si falla.
-- [x] **Respaldo manual** ("💾 Hacer un respaldo ahora", pantalla `#/respaldos`) — estos y los de
-      "antes de restaurar" **nunca se podan solos**, a diferencia de los automáticos.
-- [x] **Restaurar desde un respaldo**: guarda antes una foto de "cómo estaba todo" (si la base
-      actual ya no se puede ni leer, ese paso se salta y sigue igual), copia el archivo elegido,
-      limpia el `-wal`/`-shm` viejo que ya no aplica, verifica que el archivo restaurado abra bien,
-      y **la aplicación se reinicia sola** (`app.relaunch()`) — es la única forma de garantizar que
-      todo (sesión, catálogos en memoria) arranca limpio contra los datos nuevos. Confirmación
-      escribiendo la palabra "RESTAURAR", como borrar un repositorio en GitHub: no basta un sí/no.
-- [x] **Verificación al arrancar** (`PRAGMA integrity_check` de SQLite, en `src/main/index.js`,
-      antes de `runMigrations()`): si la base no pasa, aparece un diálogo **nativo** de Windows —
-      todavía no hay ventana ni interfaz, así que la recuperación no puede depender de que el
-      renderer funcione — ofreciendo restaurar el último respaldo ahí mismo. Esto cubre también
-      "que la última orden abierta se recupere": una base que pasa `integrity_check` es una base
-      que se puede leer de verdad, tickets abiertos incluidos.
-- **Permisos nuevos**: `respaldos.view` / `.crear` / `.restaurar` (separados: crear un respaldo y
-  restaurar uno son niveles de confianza muy distintos).
+- [x] **Un botón, "💾 Hacer un respaldo"** (pantalla `#/respaldos`): abre el explorador de Windows
+      (`dialog.showOpenDialog`, carpeta) para que la persona elija dónde — una USB, Documentos,
+      donde sea — y ahí se guarda `beso-de-cafe_respaldo_<fecha-hora>.db`.
+- [x] **Backup en línea de SQLite** (`db.backup()`), no una copia de bytes del archivo: así es
+      seguro aunque en ese momento haya una venta escribiéndose (modo WAL).
+- [x] Si cancela el explorador, no pasa nada (ni error, ni archivo a medias).
+- **Nota de diseño**: se construyó primero una versión más completa (respaldo automático diario,
+  restaurar desde la app, verificación de integridad al arrancar con recuperación automática) y
+  se recortó después a este alcance mínimo, a petición explícita. El código y las pruebas de la
+  versión completa quedan en el historial de git por si se retoma más adelante.
+- **Permisos**: `respaldos.view` (ver la pantalla) / `respaldos.crear` (usar el botón).
 - **Servicio**: `src/main/backup/backupService.js`. **Vista**: `respaldos.js`.
-- **Pruebas**: `test/backup/backupService.test.js` (rotación, restaurar de punta a punta, nombres
-  con `..` rechazados, detección de base dañada) + `test/seguridad/respaldosPermisos.test.js`
-  (matriz de permisos sobre el IPC real).
-- **Hecho cuando**: si se corrompe o se pierde la laptop, se recupera con un respaldo. ✅
+- **Pruebas**: `test/backup/backupService.test.js` (el .db resultante abre y tiene los datos de
+  ese momento, nombres sin pisarse, errores claros sin carpeta) + `test/seguridad/respaldosPermisos.test.js`
+  (el canal exige `respaldos.crear`, cancelar no truena, bitácora).
+- **Hecho cuando**: un botón saca un respaldo a la carpeta que elijas. ✅
 
 ---
 
@@ -439,11 +431,11 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Caja: turno, movimientos, arqueo | `test/caja/cajaService.test.js` | ✅ 13 |
 | Cierre de día: congelar, bloqueos, reportes desde snapshot, reabrir | `test/caja/cierreService.test.js` | ✅ 9 |
 | Reportes: resumen, por producto, insumos usados, merma, snapshot+vivo | `test/reportes/reporteService.test.js` | ✅ 18 |
-| Respaldos: crear, listar, poda por rotación, restaurar, verificar integridad | `test/backup/backupService.test.js` | ✅ 9 |
-| Seguridad: matriz de permisos de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 6 |
+| Respaldos: el .db resultante abre y trae los datos del momento, nombres, errores | `test/backup/backupService.test.js` | ✅ 4 |
+| Seguridad: permiso de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 4 |
 | Interfaz: que los botones solo se vean con el permiso correspondiente | `test/frontend/permisosVisibilidad.test.js` | ✅ 4 |
 
-**Total: 335 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 328 pruebas. Toda la lógica de negocio cubierta.**
 
 ### Auditoría de permisos en el frontend *(2026-10-10)*
 
