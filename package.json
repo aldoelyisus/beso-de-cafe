@@ -28,14 +28,25 @@
     "asar": false,
     "files": [
       "src/**/*",
+      "!src/renderer/marca/**",
       "package.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Beso de Café"
+    },
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "artifactName": "Beso-de-Cafe-Instalador-${version}.${ext}"
   }
 }
