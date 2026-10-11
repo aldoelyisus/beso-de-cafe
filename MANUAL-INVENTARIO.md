@@ -276,21 +276,26 @@ La línea gris te confirma: *"Costo por pza: $1.2500 · 1 Paquete 24 = 24 pza"*.
 
 **Paso 4.** Llena lo último.
 
-📷 **`img-ins-004`** — Parte de abajo de la ventana.
+📷 **`img-ins-004`** — Parte de abajo de la ventana, **con cantidades ya escritas** para que se
+vean los textos que calcula solos.
 **Marcar:**
-1. **Existencia inicial** y su texto *"En unidades de compra (kilos, litros, piezas…)"*.
-2. **Stock mínimo (alerta)** y su texto *"En unidad base…"*.
+1. **"¿Cuánto tienes ahora?"** y la línea gris de abajo (*"Van a entrar 3,000 g (3 × 1,000 g que
+   rinde cada Kilo)"*).
+2. **"Avísame cuando queden menos de…"** y su línea gris (*"Te avisa cuando queden menos de 500 g
+   (0.5 Kilo)"*).
 
 | Campo | Cuidado con… |
 |---|---|
 | **Costo de compra** | Lo que pagas **por una presentación completa** (el kilo, el paquete), no por gramo |
-| **Existencia inicial** | Va en **unidades de compra**: si tienes 3 kilos, escribe `3`, no `3000` |
-| **Stock mínimo** | Va en **unidad base**: para avisarte con menos de medio kilo, escribe `500` |
+| **¿Cuánto tienes ahora?** | Se cuenta **en presentaciones de compra**: si tienes 3 kilos, escribe `3`, no `3000` |
+| **Avísame cuando queden menos de…** | Se cuenta **en unidad base**: para avisarte con menos de medio kilo, escribe `500` |
 | **Notas** | Opcional |
 
-> ⚠️ Fíjate que la **existencia inicial** va en unidades de **compra** y el **stock mínimo** en
-> unidades **base**. Es a propósito —el inventario inicial lo cuentas por bolsas, la alerta la
-> piensas en lo que gastas— pero es el error de captura más común.
+> ✅ **No tienes que adivinar cuál va en cuál.** Debajo de cada uno de esos dos campos, el sistema
+> te dice en vivo en qué se convierte lo que escribiste: *"Van a entrar 3,000 g"*, *"Te avisa
+> cuando queden menos de 500 g (0.5 Kilo)"*. **Léelo antes de guardar**: ahí se ve de inmediato si
+> te equivocaste de unidad. (Son medidas distintas a propósito: la existencia la cuentas por
+> bolsas, la alerta la piensas en lo que gastas.)
 
 **Paso 5.** Da clic en **"Crear insumo"**. Aparece *"Insumo creado"*.
 
@@ -303,7 +308,7 @@ Da clic en **"Editar"**. Es la misma ventana, sin el campo de existencia inicial
 se mueve desde **"Existencias"**, ver Parte 3). El botón dice **"Guardar cambios"**.
 
 📷 **`img-ins-005`** — Ventana "Editar insumo: Café en grano".
-**Marcar:** que **no** aparece el campo "Existencia inicial".
+**Marcar:** que **no** aparece el campo "¿Cuánto tienes ahora?".
 
 ## 2.5 Por qué no se puede cambiar la unidad base
 
@@ -631,8 +636,8 @@ Las capturas de **Categorías de insumos** usan el prefijo `img-invcat-` y las d
 | `img-ins-001` | Pantalla de Insumos, con uno "Bajo" y uno "Faltan" | ① aviso de arriba ② "+ Nuevo insumo" ③ buscador, "Por acabarse" y categorías ④ etiquetas "Bajo" y "Faltan N" ⑤ Costo unitario ⑥ botones Existencias/Editar/Baja |
 | `img-ins-002` | Ventana "Nuevo insumo", parte de arriba | ① Nombre ② Categoría ③ Unidad base |
 | `img-ins-003` | Sección "Presentación de compra" | ① botones Suelto/Por kilo/… ② "¿Cómo se compra?" y "Rinde" ③ Costo de compra ④ línea gris del costo por unidad |
-| `img-ins-004` | Parte de abajo de "Nuevo insumo" | ① Existencia inicial y su texto ② Stock mínimo y su texto |
-| `img-ins-005` | Ventana "Editar insumo" | Que no aparece "Existencia inicial" |
+| `img-ins-004` | Parte de abajo de "Nuevo insumo", con cantidades escritas | ① "¿Cuánto tienes ahora?" y su línea gris de conversión ② "Avísame cuando queden menos de…" y la suya |
+| `img-ins-005` | Ventana "Editar insumo" | Que no aparece "¿Cuánto tienes ahora?" |
 | `img-ins-006` | Aviso al cambiar la unidad base de un insumo usado | El aviso completo |
 | `img-ins-007` | Tabla con un insumo dado de baja | ① renglón atenuado con "Baja" ② sin botón Existencias ③ botón "Reactivar" |
 | `img-ins-008` | Ventana "Existencias — …" | ① Existencia actual y Costo promedio ② desplegable abierto ③ "Registrar movimiento" ④ "Últimos movimientos" |

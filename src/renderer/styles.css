@@ -361,6 +361,12 @@ th.sortable.sorted { color: var(--ink); }
 th.sortable.sorted .caret { opacity: 1; }
 
 /* ---------- Editor de receta ---------- */
+/* Renglón de receta al que le falta algo: se marca en vez de descartarse. */
+.falta, .combobox.falta .cbx-input {
+  border-color: var(--danger) !important;
+  background: var(--danger-soft);
+}
+
 .receta-table { width: 100%; }
 .receta-table th { background: transparent; border-bottom: 1px solid var(--line); }
 .receta-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }

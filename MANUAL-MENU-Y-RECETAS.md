@@ -503,14 +503,28 @@ columna **Receta** cambia a **"Completa"** cuando todos los tamaños tienen rece
 
 ### Qué puede salir mal al guardar una receta
 
+> ✅ **Nada se guarda a medias.** Si un renglón quedó incompleto, el sistema **no guarda** y te
+> dice exactamente cuál es (*"Falta la cantidad de «Leche entera»"*), además de **marcarlo en
+> rojo**. Corriges, vuelves a dar "Guardar receta" y ya. Es a propósito: una receta a la que le
+> falta un insumo descuenta de menos del inventario y calcula mal su costo, y eso no se nota hasta
+> mucho después.
+
 | Mensaje | Qué pasó |
 |---|---|
+| *"Falta la cantidad de «X»."* | Elegiste el insumo pero no escribiste cuánto lleva |
+| *"Hay un renglón con cantidad N pero sin insumo elegido."* | Escribiste la cantidad y se te olvidó elegir el insumo |
+| *"Falta ponerle nombre a un grupo de opción."* | Un grupo quedó sin nombre (ej. "Leche") |
+| *"El grupo «X» necesita al menos 2 opciones para que el cliente pueda elegir."* | Un grupo con una sola opción no es una elección: ponlo como insumo normal |
 | *"Cada insumo de la receta necesita una cantidad mayor a 0."* | Un renglón quedó en 0 o vacío |
 | *"El insumo «X» está repetido con el mismo modo."* | Pusiste dos veces el mismo insumo con el mismo "¿Cuándo?". Súmalos en un solo renglón |
 | *"Cada grupo de opción necesita un nombre."* | Un grupo quedó sin nombre |
 | *"El grupo «X» necesita al menos 2 opciones."* | Un grupo con una sola opción no es una elección: ponlo como insumo normal |
 | *"El grupo «X» necesita una cantidad mayor a 0."* | Falta la cantidad del grupo |
 | *"Las opciones del grupo «X» deben usar la misma unidad."* | Mezclaste ml con g, o g con piezas |
+
+**Si borras todos los renglones y guardas**, el sistema te pregunta antes: *"«Chico» no va a
+descontar nada del inventario al venderse, y no se va a poder calcular su costo ni su ganancia.
+¿Guardar así?"*. Solo se vacía si confirmas.
 
 ## 3.8 Dar de baja un producto
 

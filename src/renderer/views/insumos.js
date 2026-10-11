@@ -190,7 +190,41 @@ async function openInsumoModal(root, id, cats, unidades) {
       ? `Costo por ${unidadBase.value}: ${money(base, 4)}  ·  1 ${unidadCompra.value || 'unidad de compra'} = ${fmt(f, 3)} ${unidadBase.value}`
       : 'Indica cuánto rinde cada compra para calcular el costo por unidad base.';
   }
-  [factor, costoCompra, unidadCompra].forEach((el) => el.addEventListener('input', syncCosto));
+  // "Existencia inicial" se captura en unidades de COMPRA y "Stock mínimo" en
+  // unidad BASE. Son dos medidas distintas en la misma ventana y es el error
+  // de captura más caro del inventario: escribir "500" pensando en gramos,
+  // con una presentación de 1 kilo, deja 500,000 g (media tonelada de café).
+  // Por eso cada campo dice en vivo en qué se va a convertir.
+  const stockInicialInfo = h('div', { class: 'hint' });
+  const stockMinInfo = h('div', { class: 'hint' });
+  function syncCantidades() {
+    const f = Number(factor.value) || 1;
+    const base = unidadBase.value;
+    const pres = unidadCompra.value.trim() || 'unidad de compra';
+    const conversion = f > 1; // si rinde 1, compra y gasto son la misma medida y no hay nada que aclarar
+    const ini = Number(stockInicial.value) || 0;
+    if (ini > 0) {
+      stockInicialInfo.textContent = conversion
+        ? `Van a entrar ${fmt(ini * f, 3)} ${base} (${fmt(ini, 3)} × ${fmt(f, 3)} ${base} que rinde cada ${pres}).`
+        : `Van a entrar ${fmt(ini, 3)} ${base}.`;
+    } else {
+      stockInicialInfo.textContent = conversion
+        ? `Se cuenta en ${pres}: si tienes 3, escribe 3 — no ${fmt(3 * f, 0)}.`
+        : `Se cuenta en ${base}.`;
+    }
+    const min = Number(stockMin.value) || 0;
+    if (min > 0) {
+      stockMinInfo.textContent = `Te avisa cuando queden menos de ${fmt(min, 3)} ${base}`
+        + (conversion ? ` (${fmt(min / f, 4)} ${pres}).` : '.');
+    } else {
+      stockMinInfo.textContent = conversion
+        ? `Se cuenta en ${base}, la unidad en que se gasta — no en ${pres}.`
+        : `Se cuenta en ${base}.`;
+    }
+  }
+  [stockInicial, stockMin].forEach((el) => el.addEventListener('input', syncCantidades));
+
+  [factor, costoCompra, unidadCompra].forEach((el) => el.addEventListener('input', () => { syncCosto(); syncCantidades(); }));
 
   // --- Atajo de presentación de compra ---
   const manualFields = h('div', { class: 'grid-2' },
@@ -219,7 +253,7 @@ async function openInsumoModal(root, id, cats, unidades) {
     unidadCompra.disabled = !manual;
     factor.disabled = !manual;
     manualFields.style.opacity = manual ? '1' : '.55';
-    if (!silent) { syncCosto(); renderPresets(); }
+    if (!silent) { syncCosto(); syncCantidades(); renderPresets(); }
   }
 
   function renderPresets() {
@@ -243,6 +277,7 @@ async function openInsumoModal(root, id, cats, unidades) {
   renderPresets();
   applyModo(modo, { silent: true });
   syncCosto();
+  syncCantidades();
 
   const body = h('div', {},
     field('Nombre del insumo', nombre),
@@ -255,8 +290,10 @@ async function openInsumoModal(root, id, cats, unidades) {
     manualFields,
     field('Costo de compra', costoCompra, '$ por cada compra (kilo, litro, paquete…)'),
     costoInfo,
-    id ? null : field('Existencia inicial', stockInicial, 'En unidades de compra (kilos, litros, piezas…).'),
-    field('Stock mínimo (alerta)', stockMin, 'En unidad base. Avisa cuando la existencia baja de aquí.'),
+    id ? null : field('¿Cuánto tienes ahora?', stockInicial),
+    id ? null : stockInicialInfo,
+    field('Avísame cuando queden menos de…', stockMin),
+    stockMinInfo,
     field('Notas', notas, 'Opcional'),
   );
 

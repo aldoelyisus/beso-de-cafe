@@ -400,6 +400,44 @@ los productos cancelados no suman.
 
 ---
 
+### Repaso de usabilidad de Inventario y Recetas *(2026-10-11)*
+
+Encargo: *"tiene que ser intuitivo, funcional para los usuarios"*. Se revisó manejando las
+pantallas reales, no solo leyendo el código.
+
+**Lo que ya estaba bien y no se tocó**: el insumo se busca escribiendo (combobox, no un `select`
+larguísimo), el costo y la ganancia se calculan en vivo mientras se arma la receta, la columna
+"¿Cuándo?" (siempre / solo para llevar / solo en cafetería), y la validación del servicio —que es
+completa y con mensajes en español de persona.
+
+> 🐞 **Bug grave corregido — la receta se guardaba a medias, en silencio.** `getItems()` del
+> editor **descartaba** los renglones incompletos antes de mandarlos, así que armar una receta de
+> dos insumos, olvidar una cantidad y guardar decía **"Receta guardada"** mientras ese insumo se
+> perdía: el producto nunca lo descontaba del inventario y su costo quedaba mal para siempre. El
+> servicio sí tenía el mensaje correcto preparado (*"Cada insumo de la receta necesita una
+> cantidad mayor a 0"*), pero nunca llegaba a ejecutarse. Ahora el editor tiene `problemas()`:
+> quien guarda pregunta primero, el aviso dice **cuál** insumo (*"Falta la cantidad de «Leche
+> entera»"*) y el renglón se marca en rojo. Aplica igual a productos y a modificadores.
+>
+> 🐞 **Trampa de las dos unidades.** "Existencia inicial" se capturaba en unidades de **compra** y
+> "Stock mínimo" en unidad **base**, en la misma ventana y sin aviso: escribir `500` pensando en
+> gramos, con presentación de 1 kilo, dejaba **500,000 g** (media tonelada de café) e inflaba la
+> inversión del reporte. No se cambió el modelo —las dos medidas tienen razón de ser— pero ahora
+> **cada campo dice en vivo en qué se convierte**: *"Van a entrar 3,000 g (3 × 1,000 g que rinde
+> cada Kilo)"*, *"Te avisa cuando queden menos de 500 g (0.5 Kilo)"*. El error se ve antes de
+> guardar. De paso los dos campos se llaman como se preguntan: **"¿Cuánto tienes ahora?"** y
+> **"Avísame cuando queden menos de…"**.
+>
+> 🐞 **Vaciar una receta ya no pasa de noche**: si se borran todos los renglones, se confirma
+> antes (*"no va a descontar nada del inventario… ¿Guardar así?"*).
+
+- **Pruebas**: `test/frontend/recetaEditor.test.js` (4).
+- **Queda como pulido opcional**: el alta de insumo sigue teniendo 9 campos; los de "presentación
+  de compra" podrían volverse un renglón de resumen cuando se usa un atajo (Suelto / Por kilo /
+  Por litro), en vez de campos deshabilitados.
+
+---
+
 ## FASE 11 — Diseño y marca
 *(Documento §3.5)*
 
@@ -466,8 +504,9 @@ Además del script de humo (`scratchpad/*.js`, herramienta de desarrollo), se ag
 | Seguridad: permiso de Respaldos sobre el IPC real | `test/seguridad/respaldosPermisos.test.js` | ✅ 4 |
 | Interfaz: que los botones solo se vean con el permiso correspondiente | `test/frontend/permisosVisibilidad.test.js` | ✅ 4 |
 | Interfaz: el flujo "una cosa a la vez" de la caja | `test/frontend/cajaFlujo.test.js` | ✅ 4 |
+| Interfaz: la receta no se guarda a medias ni se vacía sin avisar | `test/frontend/recetaEditor.test.js` | ✅ 4 |
 
-**Total: 334 pruebas. Toda la lógica de negocio cubierta.**
+**Total: 338 pruebas. Toda la lógica de negocio cubierta.**
 
 ### Auditoría de permisos en el frontend *(2026-10-10)*
 

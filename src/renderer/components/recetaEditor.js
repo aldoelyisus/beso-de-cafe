@@ -52,6 +52,10 @@ export function RecetaEditor(insumos, receta = {}, { withModo = false, withGrupo
     const unidad = h('span', { class: 'muted' }, '');
     const costo = h('span', {}, '');
     const modoSel = withModo ? modoSelect(it.modo) : null;
+    // Al corregir lo que faltaba, se le quita la marca roja al renglón.
+    const despintar = () => { sel.classList.remove('falta'); cant.classList.remove('falta'); };
+    sel.addEventListener('change', despintar);
+    cant.addEventListener('input', despintar);
 
     const refresh = () => {
       const ins = byId.get(sel.value);
@@ -141,8 +145,8 @@ export function RecetaEditor(insumos, receta = {}, { withModo = false, withGrupo
     if (!optRows.length) { addOpt(); addOpt(); }
     if (!optRows.some((r) => r.radio.checked) && optRows[0]) optRows[0].radio.checked = true;
 
-    if (nombre) nombre.addEventListener('input', onChange);
-    cant.addEventListener('input', onEdit);
+    nombre.addEventListener('input', () => { nombre.classList.remove('falta'); onChange(); });
+    cant.addEventListener('input', () => { cant.classList.remove('falta'); onEdit(); });
     if (modoSel) modoSel.addEventListener('change', onChange);
 
     const card = h('div', { class: 'grupo-card' },
@@ -216,6 +220,51 @@ export function RecetaEditor(insumos, receta = {}, { withModo = false, withGrupo
 
   function getReceta() { return { items: getItems(), grupos: getGrupos() }; }
 
+  /**
+   * Lo que la persona dejó a medias, en su idioma. Vacío = se puede guardar.
+   *
+   * Importante: `getItems()`/`getGrupos()` **descartan** los renglones
+   * incompletos para no mandarle basura al servicio. Eso hacía que armar la
+   * receta, olvidar una cantidad y guardar dijera "Receta guardada" mientras
+   * ese insumo se perdía en el camino: el producto jamás lo descontaba y su
+   * costo quedaba mal sin que nadie se enterara. Por eso quien guarda tiene
+   * que preguntar primero aquí, y el renglón incompleto se marca en rojo.
+   */
+  function problemas() {
+    const out = [];
+    for (const r of itemRows) {
+      const tieneInsumo = !!r.sel.value;
+      const cantTexto = String(r.cant.value).trim();
+      const cantNum = Number(cantTexto);
+      const tieneCant = cantTexto !== '' && Number.isFinite(cantNum) && cantNum > 0;
+      if (tieneInsumo === tieneCant) continue; // completo, o renglón en blanco que se ignora solo
+      const ins = byId.get(r.sel.value);
+      if (tieneInsumo) {
+        r.cant.classList.add('falta');
+        out.push(`Falta la cantidad de "${ins ? ins.nombre : 'un insumo'}".`);
+      } else {
+        r.sel.classList.add('falta');
+        out.push(`Hay un renglón con cantidad ${cantTexto} pero sin insumo elegido.`);
+      }
+    }
+    for (const g of grupoRows) {
+      const nombre = g.nombre.value.trim();
+      const elegidas = g.optRows.filter((r) => r.sel.value).length;
+      const cantTexto = String(g.cant.value).trim();
+      const cantNum = Number(cantTexto);
+      const vacio = !nombre && !elegidas && cantTexto === '';
+      if (vacio) continue; // grupo en blanco: se ignora solo
+      const comoSeLlama = nombre ? `"${nombre}"` : 'un grupo de opción';
+      if (!nombre) { g.nombre.classList.add('falta'); out.push('Falta ponerle nombre a un grupo de opción (ej. "Leche").'); }
+      if (!(cantTexto !== '' && Number.isFinite(cantNum) && cantNum > 0)) {
+        g.cant.classList.add('falta');
+        out.push(`Falta la cantidad del grupo ${comoSeLlama}.`);
+      }
+      if (elegidas < 2) out.push(`El grupo ${comoSeLlama} necesita al menos 2 opciones para que el cliente pueda elegir.`);
+    }
+    return out;
+  }
+
   function totals() {
     let aqui = 0;
     let llevar = 0;
@@ -236,5 +285,5 @@ export function RecetaEditor(insumos, receta = {}, { withModo = false, withGrupo
     return { aqui, llevar };
   }
 
-  return { element, getItems, getGrupos, getReceta, totals, addItem, addGrupo };
+  return { element, getItems, getGrupos, getReceta, totals, problemas, addItem, addGrupo };
 }

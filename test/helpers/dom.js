@@ -26,7 +26,7 @@ class Nodo {
     this.children = [];
     this.parentNode = null;
     this._listeners = {};
-    this.value = '';
+    this._value = '';
     this.checked = false;
     this.disabled = false;
     this.selected = false;
@@ -35,6 +35,28 @@ class Nodo {
 
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = String(v || ''); }
+
+  /**
+   * Un `<select>` real vale lo que diga su opción seleccionada (y, si
+   * ninguna lo está, su primera opción). Sin esto, un formulario recién
+   * abierto se leía con las unidades vacías y parecía un bug de la app.
+   */
+  get opciones() { return this.buscar((n) => n.tagName === 'OPTION'); }
+  get selectedOptions() { return this.opciones.filter((o) => o.selected); }
+  get value() {
+    if (this.tagName !== 'SELECT') return this._value;
+    const opts = this.opciones;
+    if (this._value !== '' && opts.some((o) => String(o.attrs.value) === String(this._value))) return this._value;
+    const marcada = opts.find((o) => o.selected);
+    if (marcada) return marcada.attrs.value;
+    return opts.length ? opts[0].attrs.value : '';
+  }
+  set value(v) {
+    this._value = v == null ? '' : v;
+    if (this.tagName === 'SELECT') {
+      for (const o of this.opciones) o.selected = String(o.attrs.value) === String(this._value);
+    }
+  }
 
   get classList() {
     const self = this;

@@ -188,8 +188,25 @@ export async function ProductoEditorView(root, idParam) {
       costeo,
       canReceta ? h('button', {
         class: 'btn', onclick: async () => {
+          // Lo que quedó a medias se avisa y se marca en rojo. Antes se
+          // descartaba en silencio: "Receta guardada" con un insumo menos.
+          const faltan = editor.problemas();
+          if (faltan.length) {
+            toast(faltan.length === 1 ? faltan[0]
+              : `${faltan[0]} (y ${faltan.length - 1} cosa(s) más, marcadas en rojo)`, 'err');
+            return;
+          }
+          const receta = editor.getReceta();
+          if (!receta.items.length && !receta.grupos.length) {
+            const seguro = await confirmDialog({
+              title: 'Se va a quedar sin receta',
+              message: `"${pres.nombre}" no va a descontar nada del inventario al venderse, y no se va a poder calcular su costo ni su ganancia. ¿Guardar así?`,
+              confirmLabel: 'Guardar sin receta',
+            });
+            if (!seguro) return;
+          }
           try {
-            await window.api.productos.setReceta(pres.id, editor.getReceta());
+            await window.api.productos.setReceta(pres.id, receta);
             toast('Receta guardada', 'ok');
             refresh(pres.id);
           } catch (e) { toast(e.message, 'err'); }

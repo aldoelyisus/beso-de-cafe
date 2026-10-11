@@ -96,6 +96,10 @@ async function openModModal(root, id, insumos) {
     buttons: [
       { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
       { label: id ? 'Guardar' : 'Crear', kind: 'primary', onClick: async (close) => {
+        // Igual que en la receta de un producto: lo que esté a medias se
+        // avisa, no se descarta en silencio.
+        const faltan = editor.problemas();
+        if (faltan.length) throw new Error(faltan[0]);
         const data = { nombre: nombre.value.trim(), precio_extra: Number(precio.value) || 0 };
         const mod = id
           ? await window.api.modificadores.update(id, data)
