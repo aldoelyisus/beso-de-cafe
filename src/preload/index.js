@@ -49,6 +49,10 @@ const api = {
     activate: (id) => invoke('insumos:activate', { id }),
     movimiento: (payload) => invoke('insumos:movimiento', payload),
     corregirCosto: (id, costo_compra, nota) => invoke('insumos:corregirCosto', { id, costo_compra, nota }),
+    preparacion: (id) => invoke('insumos:preparacion', { id }),
+    setPreparacion: (id, rinde, items) => invoke('insumos:setPreparacion', { id, rinde, items }),
+    quitarPreparacion: (id) => invoke('insumos:quitarPreparacion', { id }),
+    producir: (id, tandas, nota) => invoke('insumos:producir', { id, tandas, nota }),
   },
   menu: {
     meta: () => invoke('menu:meta'),

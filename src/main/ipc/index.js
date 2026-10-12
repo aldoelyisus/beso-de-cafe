@@ -10,6 +10,7 @@ const permissionService = require('../services/permissionService');
 const logService = require('../services/logService');
 const categoriaService = require('../services/categoriaService');
 const insumoService = require('../services/insumoService');
+const preparacionService = require('../services/preparacionService');
 const productoCategoriaService = require('../services/productoCategoriaService');
 const productoService = require('../services/productoService');
 const modificadorService = require('../services/modificadorService');
@@ -279,6 +280,30 @@ function registerIpc() {
       `${payload.tipo.toUpperCase()} en "${insumo.nombre}": ${signo}${cantidadBase} ${insumo.unidad_base} ` +
       `(stock: ${stockResultante} ${insumo.unidad_base})` + (payload.motivo ? ` — ${payload.motivo}` : '') + prov);
     return insumo;
+  });
+
+  // ---- Insumos que se preparan aquí (base para frappé y demás) ----
+  handle('insumos:preparacion', { permission: 'insumos.view' }, ({ id }) => preparacionService.getPreparacion(id));
+
+  handle('insumos:setPreparacion', { permission: 'insumos.edit' }, ({ id, rinde, items }) => {
+    const p = preparacionService.setPreparacion(id, { rinde, items }, actor());
+    audit('inventory.insumo.preparacion',
+      `Definió cómo se prepara "${p.nombre}": ${p.receta.length} insumo(s), rinde ${p.rinde} ${p.unidad_base}`);
+    return p;
+  });
+
+  handle('insumos:quitarPreparacion', { permission: 'insumos.edit' }, ({ id }) => {
+    const p = preparacionService.quitarPreparacion(id);
+    audit('inventory.insumo.preparacion', `"${p.nombre}" ya no se prepara aquí`);
+    return p;
+  });
+
+  handle('insumos:producir', { permission: 'insumos.stock' }, ({ id, tandas, nota }) => {
+    const r = preparacionService.producir(id, { tandas, nota }, actor());
+    audit('inventory.produccion',
+      `Preparó ${r.tandas} tanda(s) de "${r.insumo.nombre}": +${r.producido} ${r.insumo.unidad_base}, ` +
+      `costo $${r.costo_tanda} por tanda`);
+    return r;
   });
 
   handle('insumos:corregirCosto', { permission: 'insumos.costo' }, ({ id, costo_compra, nota }) => {

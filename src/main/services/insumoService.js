@@ -9,6 +9,7 @@ const COLS = `
   i.id, i.nombre, i.categoria_id, i.unidad_base,
   i.unidad_compra, i.factor_compra, i.costo_compra, i.costo_unitario,
   i.stock, i.stock_minimo, i.notas, i.is_active,
+  i.se_prepara, i.rinde,
   i.created_at, i.updated_at,
   c.nombre AS categoria_nombre,
   (i.stock <= i.stock_minimo) AS bajo_stock,
@@ -72,6 +73,9 @@ function enUso(db, id) {
     uno('SELECT COUNT(*) n FROM modificador_items WHERE insumo_id = ?') +
     uno('SELECT COUNT(*) n FROM receta_grupo_opciones WHERE insumo_id = ?');
   if (recetas) razones.push(`se usa en ${recetas} receta(s)`);
+  // También cuenta ser ingrediente de un insumo que se prepara aquí.
+  const comoIngrediente = uno('SELECT COUNT(*) n FROM insumo_receta WHERE componente_id = ?');
+  if (comoIngrediente) razones.push(`se usa para preparar ${comoIngrediente} insumo(s)`);
   return razones;
 }
 

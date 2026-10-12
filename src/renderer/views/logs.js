@@ -25,6 +25,8 @@ const ACTION_LABELS = {
   'inventory.insumo.activate': 'Insumo reactivado',
   'inventory.movimiento': 'Movimiento de existencias',
   'inventory.costo.ajuste': 'Corrección de costo de insumo',
+  'inventory.insumo.preparacion': 'Receta de un insumo preparado',
+  'inventory.produccion': 'Preparación de insumo (tanda)',
   'menu.categoria.create': 'Categoría de producto creada',
   'menu.categoria.update': 'Categoría de producto editada',
   'menu.categoria.deactivate': 'Categoría de producto dada de baja',

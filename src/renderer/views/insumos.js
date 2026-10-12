@@ -2,6 +2,7 @@ import { h, esc, toast, openModal, confirmDialog, field } from '../lib/ui.js';
 import { can } from '../lib/store.js';
 import { Pager } from '../components/pager.js';
 import { SearchBox, ChipRow, Toggle, Segmented, sortableTh } from '../components/filters.js';
+import { RecetaEditor } from '../components/recetaEditor.js';
 
 const SHORT_BASE = { g: 'g', ml: 'ml', pieza: 'pza' };
 
@@ -92,10 +93,20 @@ export async function InsumosView(root) {
   function insumoRow(i) {
     const actions = h('div', { class: 'row-actions' });
     if (can('insumos.stock') && i.is_active) {
+      // Lo que se prepara aquí tiene su propio botón: es la acción que de
+      // verdad hacen con él, y lleva su propio cálculo de tanda.
+      if (i.se_prepara) {
+        actions.appendChild(h('button', { class: 'btn small', onclick: () => openProducirModal(root, i.id) }, 'Preparar'));
+      }
       actions.appendChild(h('button', { class: 'btn small secondary', onclick: () => openMovimientosModal(root, i.id) }, 'Existencias'));
     }
     if (can('insumos.edit')) {
       actions.appendChild(h('button', { class: 'btn small secondary', onclick: () => openInsumoModal(root, i.id, cats, unidades) }, 'Editar'));
+      actions.appendChild(h('button', {
+        class: 'btn small ghost',
+        title: i.se_prepara ? 'Cambiar con qué se prepara' : 'Marcar que este insumo se prepara aquí',
+        onclick: () => openPreparacionModal(root, i.id),
+      }, i.se_prepara ? 'Receta' : 'Se prepara'));
     }
     if (can('insumos.delete')) {
       actions.appendChild(i.is_active
@@ -126,7 +137,10 @@ export async function InsumosView(root) {
 
     return h('tr', { style: i.is_active ? '' : 'opacity:.55' },
       h('td', {}, h('strong', {}, esc(i.nombre)),
-        i.unidad_compra ? h('div', { class: 'muted', style: 'font-size:12px' }, `compra: ${esc(i.unidad_compra)} (×${fmt(i.factor_compra, 3)} ${i.unidad_base})`) : null),
+        i.se_prepara ? h('span', { class: 'badge role', style: 'margin-left:8px' }, 'Se prepara aquí') : null,
+        i.se_prepara
+          ? h('div', { class: 'muted', style: 'font-size:12px' }, `una tanda rinde ${fmt(i.rinde, 3)} ${i.unidad_base}`)
+          : (i.unidad_compra ? h('div', { class: 'muted', style: 'font-size:12px' }, `compra: ${esc(i.unidad_compra)} (×${fmt(i.factor_compra, 3)} ${i.unidad_base})`) : null)),
       h('td', {}, i.categoria_nombre ? esc(i.categoria_nombre) : h('span', { class: 'muted' }, 'Sin categoría')),
       stockCell,
       h('td', {}, fmt(i.stock_minimo) + ' ' + i.unidad_base),
@@ -490,5 +504,151 @@ async function openMovimientosModal(root, id) {
       historial
     ),
     buttons: [{ label: 'Cerrar', kind: 'secondary', onClick: (close) => close() }],
+  });
+}
+
+/**
+ * Cómo se prepara un insumo: qué lleva una tanda y cuánto rinde.
+ *
+ * Se reusa el mismo editor de recetas de los productos (sin la columna
+ * "¿Cuándo?", que aquí no aplica: una tanda es una tanda).
+ */
+async function openPreparacionModal(root, id) {
+  const [prep, insumos] = await Promise.all([
+    window.api.insumos.preparacion(id),
+    window.api.insumos.options(),
+  ]);
+  if (!prep) return toast('El insumo ya no existe', 'err');
+
+  // Un insumo no puede llevarse a sí mismo: no se ofrece en su propia receta.
+  const disponibles = insumos.filter((x) => Number(x.id) !== Number(id));
+
+  const rinde = h('input', { type: 'number', min: '0', step: 'any', value: prep.rinde || '' });
+  const resumen = h('div', { class: 'hint' });
+
+  const editor = RecetaEditor(disponibles,
+    prep.receta.map((c) => ({ insumo_id: c.componente_id, cantidad_base: c.cantidad_base })),
+    { withModo: false, onChange: sync });
+
+  function sync() {
+    const t = editor.totals().aqui;
+    const r = Number(rinde.value) || 0;
+    resumen.innerHTML = '';
+    resumen.textContent = r > 0 && t > 0
+      ? `Una tanda cuesta ${money(t)} y rinde ${fmt(r, 3)} ${prep.unidad_base} → ${money(t / r, 4)} por ${prep.unidad_base}.`
+      : `Escribe qué lleva y cuánto sale, para calcular en cuánto te queda cada ${prep.unidad_base}.`;
+  }
+  rinde.addEventListener('input', sync);
+  sync();
+
+  const botones = [
+    { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
+    { label: 'Guardar', kind: 'primary', onClick: async (close) => {
+      const faltan = editor.problemas();
+      if (faltan.length) throw new Error(faltan[0]);
+      const items = editor.getItems().map((x) => ({ componente_id: x.insumo_id, cantidad_base: x.cantidad_base }));
+      await window.api.insumos.setPreparacion(id, rinde.value, items);
+      toast('Listo: ya se puede preparar', 'ok');
+      close();
+      InsumosView(root);
+    } },
+  ];
+  if (prep.se_prepara) {
+    botones.splice(1, 0, { label: 'Ya no se prepara aquí', kind: 'danger', onClick: async (close) => {
+      if (!(await confirmDialog({
+        message: `"${prep.nombre}" dejará de prepararse aquí y se tratará como un insumo que solo se compra. Su existencia y su historial no se tocan.`,
+        confirmLabel: 'Quitar la receta',
+      }))) return;
+      await window.api.insumos.quitarPreparacion(id);
+      toast('Ya no se prepara aquí', 'ok');
+      close();
+      InsumosView(root);
+    } });
+  }
+
+  openModal({
+    title: `Cómo se prepara: ${prep.nombre}`,
+    wide: true,
+    body: h('div', {},
+      h('p', { class: 'hint' },
+        'Para lo que ustedes hacen aquí con otros insumos, como la base para frappé. '
+        + 'Al preparar una tanda salen estos insumos del inventario y entra ésta; '
+        + `al vender se descuenta solo ${prep.nombre.toLowerCase()}, porque lo demás ya salió.`),
+      field(`¿Cuánto sale de una tanda? (en ${prep.unidad_base})`, rinde, 'Ej. 1000 si de una tanda salen 1000 g'),
+      h('div', { class: 'section-title' }, 'Qué lleva una tanda'),
+      editor.element,
+      resumen
+    ),
+    buttons: botones,
+  });
+}
+
+/** Preparar una tanda: el momento en que salen los componentes y entra lo hecho. */
+async function openProducirModal(root, id, alTerminar) {
+  const prep = await window.api.insumos.preparacion(id);
+  if (!prep || !prep.se_prepara) return toast('Este insumo no se prepara aquí', 'err');
+  if (!prep.receta.length) return toast('Primero dile con qué se prepara', 'err');
+
+  const tandas = h('input', { type: 'number', min: '0', step: 'any', value: '1' });
+  const nota = h('input', { type: 'text', placeholder: 'Opcional' });
+  const detalle = h('div', {});
+
+  function sync() {
+    const f = Number(tandas.value) || 0;
+    detalle.innerHTML = '';
+    if (!(f > 0)) { detalle.appendChild(h('div', { class: 'hint' }, 'Escribe cuántas tandas prepararon.')); return; }
+    const fila = (izq, der, extra = '') => h('div',
+      { style: 'display:flex;justify-content:space-between;gap:12px;margin-top:4px;' + extra },
+      h('span', {}, izq), h('span', {}, der));
+    const caja = h('div', { class: 'arqueo-desglose' });
+    for (const c of prep.receta) {
+      const usado = c.cantidad_base * f;
+      const queda = c.stock - usado;
+      caja.appendChild(fila(
+        esc(c.componente_nombre),
+        `−${fmt(usado, 3)} ${c.unidad_base}`,
+        queda < 0 ? 'color:var(--danger)' : ''
+      ));
+      if (queda < 0) {
+        caja.appendChild(h('div', { class: 'hint', style: 'color:var(--danger);margin-left:10px' },
+          `No alcanza: solo hay ${fmt(c.stock, 3)} ${c.unidad_base}.`));
+      }
+    }
+    caja.appendChild(fila(
+      `Entra de ${esc(prep.nombre)}`,
+      `+${fmt(prep.rinde * f, 3)} ${prep.unidad_base}`,
+      'border-top:1px solid var(--line);margin-top:8px;padding-top:8px;font-weight:700'
+    ));
+    detalle.appendChild(caja);
+    detalle.appendChild(h('div', { class: 'hint' },
+      `Costo: ${money(prep.costo_tanda * f)} en total · ${money(prep.costo_por_unidad, 4)} por ${prep.unidad_base}.`));
+  }
+  tandas.addEventListener('input', sync);
+  sync();
+
+  openModal({
+    title: `Preparar ${prep.nombre}`,
+    wide: true,
+    body: h('div', {},
+      prep.tandas_posibles > 0
+        ? h('div', { class: 'hint' }, `Con lo que hay alcanza para ${prep.tandas_posibles} tanda(s) completa(s).`)
+        : h('div', { class: 'form-error' }, 'Con la existencia actual no alcanza ni para una tanda completa.'),
+      field('¿Cuántas tandas prepararon?', tandas, 'Se puede media tanda: escribe 0.5'),
+      detalle,
+      field('Nota', nota, 'Opcional')
+    ),
+    buttons: [
+      { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
+      { label: 'Registrar preparación', kind: 'primary', onClick: async (close) => {
+        const r = await window.api.insumos.producir(id, tandas.value, nota.value.trim());
+        toast(`Entraron ${fmt(r.producido, 3)} ${r.insumo.unidad_base} de ${r.insumo.nombre}`, 'ok');
+        for (const f of r.faltantes || []) {
+          toast(`⚠ ${f.nombre} quedó en ${fmt(f.stock, 3)} ${f.unidad}. Falta registrar una compra o hacer conteo.`, 'err');
+        }
+        close();
+        if (alTerminar) alTerminar();
+        InsumosView(root);
+      } },
+    ],
   });
 }
