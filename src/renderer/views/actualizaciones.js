@@ -26,12 +26,30 @@ export async function ActualizacionesView(root) {
       h('div', { class: 'k' }, 'Versión instalada'),
       h('div', { class: 'v' }, esc(estado.version))));
 
+  // La carpeta importa para resolver fallas a distancia: es lo primero que hay
+  // que preguntar cuando una actualización no se puede aplicar.
+  if (estado.carpeta) {
+    card.appendChild(h('div', { class: 'hint', style: 'margin-top:8px;word-break:break-all' },
+      'Carpeta del programa: ', esc(estado.carpeta)));
+  }
+
   if (!estado.instalada) {
     card.appendChild(h('div', { class: 'form-error', style: 'margin-top:12px' },
       'Estás en el programa de desarrollo, no en el instalado: aquí las actualizaciones no se pueden aplicar.'));
   }
 
-  if (can('actualizaciones.aplicar')) {
+  // Si el programa quedó en una carpeta protegida de Windows, decirlo AQUÍ:
+  // de nada sirve enterarse cuando el archivo ya viajó y falla al aplicarse.
+  if (estado.instalada && estado.impedimento) {
+    card.appendChild(h('div', { class: 'form-error', style: 'margin-top:12px' },
+      h('strong', {}, 'Este programa no se puede actualizar con archivos.'),
+      h('div', { style: 'margin-top:6px' }, esc(estado.impedimento)),
+      h('div', { class: 'hint', style: 'margin-top:6px' },
+        'Avísale a quien te instaló el programa: hay que reinstalarlo en la carpeta del usuario. '
+        + 'Las ventas, el inventario y los usuarios se quedan donde están.')));
+  }
+
+  if (can('actualizaciones.aplicar') && !estado.impedimento) {
     card.appendChild(h('p', { style: 'margin-top:14px' },
       'Cuando te manden un archivo de actualización (por WhatsApp o en una USB), guárdalo en la computadora y ábrelo con este botón. Te va a decir qué trae antes de hacer nada.'));
     card.appendChild(h('div', { class: 'caja-acciones' },
@@ -39,6 +57,13 @@ export async function ActualizacionesView(root) {
       estado.sePuedeDeshacer
         ? h('button', { class: 'btn secondary small', onclick: (e) => deshacer(e.target) }, 'Deshacer la última')
         : null));
+  } else if (can('actualizaciones.aplicar')) {
+    // Con impedimento no se ofrece el botón, pero sí poder deshacer: si una
+    // actualización vieja dejó algo mal, hay que poder volver atrás.
+    if (estado.sePuedeDeshacer) {
+      card.appendChild(h('div', { class: 'caja-acciones' },
+        h('button', { class: 'btn secondary small', onclick: (e) => deshacer(e.target) }, 'Deshacer la última')));
+    }
   } else {
     card.appendChild(h('div', { class: 'hint', style: 'margin-top:12px' },
       'No tienes permiso para aplicar actualizaciones.'));

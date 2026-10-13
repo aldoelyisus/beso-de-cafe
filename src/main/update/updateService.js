@@ -49,6 +49,31 @@ function carpetaDatos() {
   return process.env.BESO_DATOS_PATH || app.getPath('userData');
 }
 
+/**
+ * Si el programa se instaló en "Program Files", Windows no deja escribir ahí
+ * sin permisos de administrador: las actualizaciones por archivo no funcionan.
+ * Hay que saberlo ANTES de mandar el archivo a la cafetería, no cuando ya está
+ * allá y revienta con un error en inglés.
+ *
+ * Devuelve el problema en palabras, o null si sí se puede actualizar.
+ */
+function porQueNoSePuede({ raiz = raizApp() } = {}) {
+  const prueba = path.join(raiz, '.beso-prueba-escritura');
+  try {
+    fs.writeFileSync(prueba, 'x');
+    fs.rmSync(prueba, { force: true });
+    return null;
+  } catch (e) {
+    try { fs.rmSync(prueba, { force: true }); } catch { /* ya no estaba */ }
+    if (e.code === 'EPERM' || e.code === 'EACCES') {
+      return 'El programa está instalado en una carpeta protegida de Windows '
+        + `("${raiz}"), y ahí no se puede actualizar con un archivo. `
+        + 'Hay que reinstalarlo en la carpeta del usuario; los datos no se pierden.';
+    }
+    return `No se puede escribir en la carpeta del programa: ${e.message}`;
+  }
+}
+
 /** Dónde van las copias del código. `crear` solo cuando de verdad se va a escribir. */
 function carpetaRespaldos({ crear = false } = {}) {
   const dir = path.join(carpetaDatos(), 'respaldos-codigo');
@@ -172,6 +197,8 @@ function podarRespaldos() {
  */
 function aplicar(rutaArchivo, { raiz = raizApp() } = {}) {
   const info = leerActualizacion(rutaArchivo);
+  const problema = porQueNoSePuede({ raiz });
+  if (problema) throw new Error(problema);
   const datos = JSON.parse(fs.readFileSync(rutaArchivo, 'utf8'));
   const respaldo = respaldarAntes(raiz, info.archivos);
 
@@ -242,7 +269,14 @@ function estado() {
     instalada: !!(app && app.isPackaged),
     sePuedeDeshacer: copiasGuardadas().length > 0,
     historial: historial().slice(0, 10),
+    // Para avisarlo en la pantalla antes de que alguien prepare y mande un
+    // archivo que de todos modos no se va a poder aplicar.
+    carpeta: raizApp(),
+    impedimento: porQueNoSePuede(),
   };
 }
 
-module.exports = { FORMATO, leerActualizacion, aplicar, revertir, estado, historial, rutaSegura, sha256 };
+module.exports = {
+  FORMATO, leerActualizacion, aplicar, revertir, estado, historial,
+  rutaSegura, sha256, porQueNoSePuede,
+};

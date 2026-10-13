@@ -137,3 +137,46 @@ test('el historial anota cada actualización aplicada', () => {
   assert.equal(h[0].descripcion, 'Arregla el botón X');
   assert.equal(h[0].archivos, 1);
 });
+
+/**
+ * Lo que motivó esto: el programa se instaló una vez en "C:\Program Files" y
+ * el parche falló allá con un EPERM en inglés, cuando el archivo ya había
+ * viajado. Ahora se sabe antes, y con palabras que la dueña entienda.
+ */
+test('una carpeta normal sí se puede actualizar', () => {
+  const raiz = raizFalsa({ 'src/a.js': 'viejo' });
+  assert.equal(update.porQueNoSePuede({ raiz }), null);
+  // Y no deja basura de la comprobación.
+  assert.deepEqual(fs.readdirSync(raiz), ['src'], 'el archivo de prueba se borra');
+});
+
+test('en una carpeta protegida de Windows avisa en español, sin tocar nada', { skip: puedeEscribirEnProgramFiles() }, () => {
+  const protegida = process.env.PROGRAMFILES || 'C:\Program Files';
+  const razon = update.porQueNoSePuede({ raiz: protegida });
+  assert.ok(razon, 'tiene que detectarlo');
+  assert.match(razon, /carpeta protegida de Windows/);
+  assert.match(razon, /los datos no se pierden/i, 'lo primero que la dueña va a querer saber');
+  assert.ok(!/EPERM|EACCES/.test(razon), 'sin jerga de programador');
+});
+
+test('aplicar se niega antes de escribir si la carpeta no se puede tocar', { skip: puedeEscribirEnProgramFiles() }, () => {
+  const protegida = process.env.PROGRAMFILES || 'C:\Program Files';
+  const p = paquete({ 'src/nuevo.js': 'contenido' });
+  const antes = update.historial().length;
+  assert.throws(() => update.aplicar(p, { raiz: protegida }), /carpeta protegida de Windows/);
+  assert.ok(!fs.existsSync(path.join(protegida, 'src/nuevo.js')), 'no escribió nada');
+  assert.equal(update.historial().length, antes, 'ni lo anotó como aplicada');
+});
+
+/** Con permisos de administrador Program Files sí se puede escribir: ahí estas pruebas no aplican. */
+function puedeEscribirEnProgramFiles() {
+  const dir = process.env.PROGRAMFILES || 'C:\Program Files';
+  const prueba = path.join(dir, '.beso-prueba-suite');
+  try {
+    fs.writeFileSync(prueba, 'x');
+    fs.rmSync(prueba, { force: true });
+    return 'la suite corre con permisos de administrador';
+  } catch {
+    return false;
+  }
+}
