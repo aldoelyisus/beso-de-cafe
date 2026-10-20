@@ -440,6 +440,97 @@ test('volver a sentar la cuenta devuelve los vasos', () => {
   assert.equal(stock(vaso.id), 100, 'los vasos regresaron al inventario');
 });
 
+/**
+ * Un producto que gasta cosas distintas según dónde se consuma: vaso
+ * desechable si va para llevar, taza y plato si se sirve en la mesa.
+ *
+ * El fixture de arriba solo tenía el vaso, así que el sentido "pasar a
+ * consumir aquí" se probaba a medias: se veía regresar el vaso, pero nadie
+ * verificaba que saliera la taza. Si alguna vez se rompe, la cafetería
+ * serviría en tazas que el inventario sigue contando como guardadas.
+ */
+function capuchino() {
+  const cafe = crearInsumo({ nombre: 'Café', unidad_base: 'g', factor_compra: 1000, costo_compra: 300, stock_inicial_compra: 10 });
+  const vaso = crearInsumo({ nombre: 'Vaso desechable', unidad_base: 'pieza', factor_compra: 1, costo_compra: 2, stock_inicial_compra: 100 });
+  const taza = crearInsumo({ nombre: 'Taza', unidad_base: 'pieza', factor_compra: 1, costo_compra: 0.5, stock_inicial_compra: 50 });
+  const p = crearProducto({ nombre: 'Capuchino', precio: 55 }, {
+    items: [
+      { insumo_id: cafe.id, cantidad_base: 18, modo: 'siempre' },
+      { insumo_id: vaso.id, cantidad_base: 1, modo: 'llevar' },
+      { insumo_id: taza.id, cantidad_base: 1, modo: 'aqui' },
+    ],
+  });
+  return { presId: p.presentaciones[0].id, cafe, vaso, taza };
+}
+
+test('pasar a consumir aquí: regresa el vaso Y sale la taza', () => {
+  const { presId, cafe, vaso, taza } = capuchino();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: true }, ACTOR);
+
+  assert.equal(stock(vaso.id), 99, 'nació para llevar: salió el vaso');
+  assert.equal(stock(taza.id), 50, 'la taza sigue guardada');
+  const cafeTrasPedir = stock(cafe.id);
+
+  const r = svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: m.id }, ACTOR);
+
+  assert.equal(r.tipo, 'mesa');
+  assert.equal(r.items_convertidos, 1);
+  assert.equal(r.items_con_movimiento, 1, 'hubo movimiento de inventario');
+  assert.equal(stock(vaso.id), 100, 'el vaso desechable regresó');
+  assert.equal(stock(taza.id), 49, 'salió la taza para servir aquí');
+  assert.equal(stock(cafe.id), cafeTrasPedir, 'el café es de modo siempre: no se toca');
+});
+
+test('pasar a consumir aquí y de vuelta a llevar deja el inventario como al principio', () => {
+  const { presId, cafe, vaso, taza } = capuchino();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 3, paraLlevar: true }, ACTOR);
+  const inicio = { cafe: stock(cafe.id), vaso: stock(vaso.id), taza: stock(taza.id) };
+
+  svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: m.id }, ACTOR);
+  assert.equal(stock(vaso.id), inicio.vaso + 3, 'los 3 vasos regresaron');
+  assert.equal(stock(taza.id), inicio.taza - 3, 'salieron 3 tazas');
+
+  svc.cambiarTipoVenta(v.id, { tipo: 'llevar' }, ACTOR);
+  assert.equal(stock(vaso.id), inicio.vaso, 'vasos como al principio');
+  assert.equal(stock(taza.id), inicio.taza, 'tazas como al principio');
+  assert.equal(stock(cafe.id), inicio.cafe, 'el café nunca se movió');
+});
+
+test('el cambio a consumir aquí queda en el libro de inventario con su motivo', () => {
+  const { presId, taza } = capuchino();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: true }, ACTOR);
+  svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: m.id }, ACTOR);
+
+  const movs = insumoSvc.listMovimientos({ insumoId: taza.id });
+  const mov = movs.find((x) => x.tipo === 'consumo');
+  assert.ok(mov, 'la salida de la taza quedó anotada');
+  assert.match(mov.motivo, /Pasó a servir aquí/, 'con un motivo que se entiende');
+  assert.match(mov.referencia, new RegExp(`Cuenta #${v.id}`), 'y apunta a la cuenta');
+});
+
+test('el costo del renglón cambia al pasar a consumir aquí', () => {
+  const { presId } = capuchino();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  const v = svc.abrirVenta({ tipo: 'llevar' }, ACTOR);
+  svc.agregarItem(v.id, { presentacionId: presId, cantidad: 1, paraLlevar: true }, ACTOR);
+  const itemId = svc.getVenta(v.id).items[0].id;
+  const costo = () => getDb().prepare(
+    'SELECT COALESCE(SUM(cantidad_base * costo_unitario), 0) c FROM venta_item_consumo WHERE venta_item_id = ? AND devuelto = 0'
+  ).get(itemId).c;
+
+  // Para llevar: café 18 g × 0.30 = 5.40, más el vaso de $2.00
+  near(costo(), 7.40, 'costo para llevar');
+  svc.cambiarTipoVenta(v.id, { tipo: 'mesa', mesaId: m.id }, ACTOR);
+  // Aquí: los mismos 5.40, más la taza de $0.50
+  near(costo(), 5.90, 'servido aquí sale más barato: taza en vez de vaso');
+});
+
 test('cambiar de mesa no toca el inventario', () => {
   const { presId, vaso, base } = frappe();
   const m1 = mesaSvc.createMesa({ nombre: 'Mesa 1' });

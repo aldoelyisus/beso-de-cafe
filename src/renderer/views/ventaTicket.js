@@ -40,15 +40,17 @@ export async function VentaTicketView(root, idParam) {
           (venta.tipo === 'mesa' ? esc(venta.mesa_nombre || 'Mesa') : 'Para llevar') + ' · ',
           estadoBadge(venta.estado))
       ),
-      // La mesa se retira a media cuenta: lo servido se pasa a vasos desechables.
+      // El destino de la cuenta cambia a media venta en los dos sentidos: la
+      // mesa se tiene que retirar, o el cliente que pidió para llevar se queda.
+      // Cada sentido mueve los insumos de su receta, así que los dos botones
+      // existen siempre y se ven igual de a mano.
       venta.estado === 'abierta' && can('ventas.crear')
         ? h('div', { class: 'row-actions' },
             venta.tipo === 'mesa'
               ? h('button', { class: 'btn secondary', onclick: () => pasarALlevar() }, 'Pasar a llevar')
-              : null,
-            mesasDisponibles().length
-              ? h('button', { class: 'btn secondary', onclick: () => moverAMesa() },
-                  venta.tipo === 'mesa' ? 'Cambiar de mesa' : 'Sentar en una mesa')
+              : h('button', { class: 'btn secondary', onclick: () => pasarAConsumirAqui() }, 'Pasar a consumir aquí'),
+            venta.tipo === 'mesa' && otrasMesas().length
+              ? h('button', { class: 'btn secondary', onclick: () => moverAMesa() }, 'Cambiar de mesa')
               : null
           )
         : null
@@ -64,6 +66,11 @@ export async function VentaTicketView(root, idParam) {
   /** Mesas activas donde cabe esta cuenta (las ocupadas por OTRA cuenta no). */
   function mesasDisponibles() {
     return (mesas || []).filter((m) => !m.venta_abierta_id || m.venta_abierta_id === venta.id);
+  }
+
+  /** Las libres que no son la de esta cuenta: a dónde se puede mover. */
+  function otrasMesas() {
+    return mesasDisponibles().filter((m) => m.id !== venta.mesa_id);
   }
 
   /** Cuántos productos activos cambiarían de modo (y por tanto de vaso). */
@@ -91,26 +98,75 @@ export async function VentaTicketView(root, idParam) {
     } catch (e) { toast(e.message, 'err'); }
   }
 
-  async function moverAMesa() {
-    const opciones = mesasDisponibles().filter((m) => m.id !== venta.mesa_id);
-    if (!opciones.length) return toast('No hay mesas libres.', 'err');
-    const sel = h('select', {}, ...opciones.map((m) => h('option', { value: String(m.id) }, m.nombre)));
+  /**
+   * El inverso de "Pasar a llevar": el cliente pidió para llevar y se queda a
+   * consumir aquí. Los vasos desechables regresan al inventario y sale lo que
+   * la receta pide para servir en mesa (la taza, el plato).
+   *
+   * Consumir aquí es estar en una mesa, así que hay que elegirla. Si no hay
+   * ninguna libre se dice por qué en vez de esconder el botón: quien atiende
+   * necesita saber que el camino existe y qué le falta para tomarlo.
+   */
+  async function pasarAConsumirAqui() {
+    const libres = otrasMesas();
+    if (!libres.length) {
+      return openModal({
+        title: 'Pasar la cuenta a consumir aquí',
+        body: h('div', {},
+          h('p', {}, 'Ahora mismo no hay ninguna mesa libre: todas tienen una cuenta abierta.'),
+          h('div', { class: 'hint' },
+            'Cobra una mesa para liberarla, o agrega más mesas en Ventas → Mesas, y vuelve a intentarlo. '
+            + 'La cuenta sigue para llevar mientras tanto.')),
+        buttons: [{ label: 'Entendido', kind: 'primary', onClick: (close) => close() }],
+      });
+    }
+
+    const sel = h('select', {}, ...libres.map((m) => h('option', { value: String(m.id) }, m.nombre)));
     const n = itemsPorConvertir(false);
     openModal({
-      title: venta.tipo === 'mesa' ? 'Cambiar de mesa' : 'Sentar la cuenta en una mesa',
+      title: 'Pasar la cuenta a consumir aquí',
       body: h('div', {},
-        field('Mesa', sel),
-        n ? h('div', { class: 'hint' },
-          `${n} producto(s) se sirvieron para llevar: al sentarlos aquí, sus vasos desechables regresan al inventario.`) : null
+        field('¿En qué mesa se sienta?', sel),
+        h('div', { class: 'hint' }, n
+          ? `${n} producto(s) se prepararon para llevar: sus vasos desechables regresan al inventario `
+            + 'y se descuenta lo que la receta pide para servir aquí. Todo solo.'
+          : 'La cuenta todavía no tiene productos preparados para llevar.')
       ),
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
+        { label: 'Pasar a consumir aquí', kind: 'primary', onClick: async (close) => {
+          try {
+            const v = await window.api.ventas.cambiarTipo(venta.id, 'mesa', Number(sel.value));
+            toast(v.items_con_movimiento
+              ? `Cuenta en ${v.mesa_nombre}. Se ajustaron los insumos de ${v.items_con_movimiento} producto(s).`
+              : `Cuenta en ${v.mesa_nombre}.`, 'ok');
+            close();
+            mesas = await recargarMesas();
+            refresh();
+          } catch (e) { toast(e.message, 'err'); }
+        } },
+      ],
+    });
+  }
+
+  /** Mover una cuenta que ya está aquí de una mesa a otra: no cambia ninguna receta. */
+  async function moverAMesa() {
+    const opciones = otrasMesas();
+    if (!opciones.length) return toast('No hay mesas libres.', 'err');
+    const sel = h('select', {}, ...opciones.map((m) => h('option', { value: String(m.id) }, m.nombre)));
+    openModal({
+      title: 'Cambiar de mesa',
+      body: h('div', {}, field('Mesa', sel)),
+      buttons: [
+        { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
         { label: 'Mover cuenta', kind: 'primary', onClick: async (close) => {
-          const v = await window.api.ventas.cambiarTipo(venta.id, 'mesa', Number(sel.value));
-          toast(`Cuenta en ${v.mesa_nombre}.`, 'ok');
-          close();
-          mesas = await recargarMesas();
-          refresh();
+          try {
+            const v = await window.api.ventas.cambiarTipo(venta.id, 'mesa', Number(sel.value));
+            toast(`Cuenta en ${v.mesa_nombre}.`, 'ok');
+            close();
+            mesas = await recargarMesas();
+            refresh();
+          } catch (e) { toast(e.message, 'err'); }
         } },
       ],
     });
