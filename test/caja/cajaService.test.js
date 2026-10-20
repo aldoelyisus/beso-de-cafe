@@ -172,3 +172,75 @@ test('el corte guarda las salidas con su concepto, para poder explicarlas despuÃ
   const cerrado = svc.cerrarCorte({ efectivo_contado: 600, notas: 'cuadrÃ³' }, ACTOR);
   assert.equal(cerrado.movimientos.length, 3, 'los movimientos se conservan en el corte cerrado');
 });
+
+/**
+ * Lo que reporto la cafeteria: "al abrir turno no se guarda la cantidad del
+ * dinero que se dejo en caja un dia anterior".
+ *
+ * El dinero no se mueve del cajon de un dia a otro, asi que lo contado al
+ * cerrar es el fondo del dia siguiente. Antes habia que acordarse y teclearlo,
+ * con el campo arrancando en 0; un 0 por descuido borra el fondo de la cuenta
+ * del dia y al cerrar aparece un sobrante que nadie se explica.
+ */
+test('el fondo del dia siguiente se hereda de lo que quedo en el cajon', () => {
+  svc.abrirCorte({ fondo_inicial: 500 }, ACTOR);
+  svc.cerrarCorte({ efectivo_contado: 1234.5, notas: 'dia normal' }, ACTOR);
+
+  // Al abrir sin capturar nada se toma lo que quedo contado.
+  const hoy = svc.abrirCorte({}, ACTOR);
+  near(hoy.fondo_inicial, 1234.5, 'abrio con lo que se dejo ayer');
+});
+
+test('ultimoCierre dice cuanto se dejo y cuando, para proponerlo', () => {
+  assert.equal(svc.ultimoCierre(), null, 'sin cierres todavia no propone nada');
+
+  svc.abrirCorte({ fondo_inicial: 100 }, ACTOR);
+  svc.cerrarCorte({ efectivo_contado: 980, notas: 'cuadro' }, ACTOR);
+
+  const u = svc.ultimoCierre();
+  assert.equal(u.efectivo_contado, 980);
+  assert.ok(u.cerrado_at, 'trae la fecha para decirle de donde sale el numero');
+});
+
+test('un 0 escrito a proposito se respeta: no revive el fondo de ayer', () => {
+  svc.abrirCorte({ fondo_inicial: 300 }, ACTOR);
+  svc.cerrarCorte({ efectivo_contado: 700, notas: 'se llevaron el efectivo' }, ACTOR);
+
+  // Se guardo todo el dinero: hoy se empieza de cero de verdad.
+  const hoy = svc.abrirCorte({ fondo_inicial: 0 }, ACTOR);
+  near(hoy.fondo_inicial, 0, 'el 0 capturado gana sobre lo heredado');
+});
+
+test('se puede corregir el fondo heredado si el dinero se movio', () => {
+  svc.abrirCorte({ fondo_inicial: 200 }, ACTOR);
+  svc.cerrarCorte({ efectivo_contado: 1500, notas: 'cierre' }, ACTOR);
+
+  const hoy = svc.abrirCorte({ fondo_inicial: 1200 }, ACTOR);
+  near(hoy.fondo_inicial, 1200, 'lo capturado manda');
+});
+
+test('solo hereda de turnos CERRADOS, nunca de uno a medias', () => {
+  svc.abrirCorte({ fondo_inicial: 400 }, ACTOR);
+  svc.cerrarCorte({ efectivo_contado: 850, notas: 'ok' }, ACTOR);
+  const u1 = svc.ultimoCierre();
+  assert.equal(u1.efectivo_contado, 850);
+
+  // Un turno abierto no cambia la propuesta: todavia no se cuenta nada.
+  svc.abrirCorte({ fondo_inicial: 850 }, ACTOR);
+  const u2 = svc.ultimoCierre();
+  assert.equal(u2.id, u1.id, 'sigue siendo el ultimo CERRADO');
+});
+
+test('el fondo heredado entra en el efectivo esperado del dia', () => {
+  svc.abrirCorte({ fondo_inicial: 100 }, ACTOR);
+  svc.cerrarCorte({ efectivo_contado: 600, notas: 'cierre' }, ACTOR);
+
+  const hoy = svc.abrirCorte({}, ACTOR);
+  near(hoy.fondo_inicial, 600);
+  // Sin ventas ni movimientos, lo esperado es exactamente el fondo.
+  near(svc.getCorte().efectivo_esperado_calc, 600, 'cuenta el fondo heredado');
+
+  // Y al cerrar con ese mismo dinero no hay diferencia inventada.
+  const cerrado = svc.cerrarCorte({ efectivo_contado: 600, notas: 'sin ventas' }, ACTOR);
+  near(cerrado.diferencia, 0, 'ni sobrante ni faltante falso');
+});

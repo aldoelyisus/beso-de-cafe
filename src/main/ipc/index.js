@@ -613,6 +613,8 @@ function registerIpc() {
   // ---- Corte de caja ----
   handle('caja:corte', { permission: 'caja.view' }, ({ id } = {}) => cajaService.getCorte(id));
   handle('caja:cortes', { permission: 'caja.view' }, (opts) => cajaService.listCortes(opts || {}));
+  // Para proponer el fondo al abrir el turno: lo que quedó en el cajón ayer.
+  handle('caja:ultimoCierre', { permission: 'caja.view' }, () => cajaService.ultimoCierre());
   handle('caja:abrir', { permission: 'caja.turno' }, ({ fondo_inicial }) => {
     const c = cajaService.abrirCorte({ fondo_inicial }, actor());
     audit('caja.abrir', `Abrió la caja #${c.id} con $${c.fondo_inicial} de fondo`);

@@ -19,6 +19,24 @@ function corteAbiertoRow() {
   return getDb().prepare("SELECT * FROM cortes_caja WHERE estado = 'abierto' ORDER BY id DESC LIMIT 1").get() || null;
 }
 
+/**
+ * El último turno que se cerró: lo que quedó contado en el cajón es, en la
+ * práctica, el fondo con el que se abre el siguiente día.
+ *
+ * Antes no se guardaba nada de eso: cada mañana había que acordarse de cuánto
+ * se había dejado y teclearlo, y el campo arrancaba en 0. Un 0 por descuido
+ * desaparece el fondo de la cuenta del día y deja un sobrante falso al cerrar.
+ */
+function ultimoCierre() {
+  const c = getDb().prepare(
+    `SELECT id, efectivo_contado, cerrado_username,
+            datetime(cerrado_at,'localtime') AS cerrado_at
+     FROM cortes_caja WHERE estado = 'cerrado' AND efectivo_contado IS NOT NULL
+     ORDER BY id DESC LIMIT 1`
+  ).get();
+  return c || null;
+}
+
 /** Números en vivo de un turno (o del turno abierto). */
 function getCorte(id) {
   const db = getDb();
@@ -57,7 +75,13 @@ function abrirCorte({ fondo_inicial }, actor = {}) {
   if (!vacio(fondo_inicial) && !Number.isFinite(Number(fondo_inicial))) {
     throw new Error('El efectivo inicial debe ser un número.');
   }
-  const f = num(fondo_inicial, 0);
+  // Sin capturar nada se hereda lo que quedó en el cajón al cerrar: es el
+  // caso normal (el dinero no se movió de un día a otro) y así no depende de
+  // que alguien se acuerde. Con un 0 escrito a propósito se respeta el 0.
+  const previo = ultimoCierre();
+  const f = vacio(fondo_inicial)
+    ? num(previo && previo.efectivo_contado, 0)
+    : num(fondo_inicial, 0);
   if (f < 0) throw new Error('El fondo inicial no puede ser negativo.');
   const info = db.prepare(
     'INSERT INTO cortes_caja (fondo_inicial, abierto_por, abierto_username) VALUES (?, ?, ?)'
@@ -116,4 +140,4 @@ function listCortes({ limit = 30 } = {}) {
   });
 }
 
-module.exports = { corteAbiertoRow, getCorte, abrirCorte, registrarMovimiento, cerrarCorte, listCortes };
+module.exports = { corteAbiertoRow, getCorte, abrirCorte, registrarMovimiento, cerrarCorte, listCortes, ultimoCierre };

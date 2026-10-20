@@ -4,6 +4,14 @@ import { can } from '../lib/store.js';
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const soloHora = (s) => String(s || '').slice(11, 16);
+/** "2026-10-19 21:40" -> "19 de octubre a las 21:40": como lo diría alguien. */
+const cuando = (s) => {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  const d = new Date(t.replace(' ', 'T'));
+  if (Number.isNaN(d.getTime())) return t;
+  return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' }) + ' a las ' + soloHora(t);
+};
 
 /**
  * Pantalla de Caja — una cosa a la vez.
@@ -158,17 +166,46 @@ export async function CajaView(root) {
   }
 
   // ---------- Acciones ----------
-  function abrirCaja() {
-    const fondo = h('input', { type: 'number', min: '0', step: 'any', value: '0' });
+  /**
+   * Abrir el turno con el fondo ya propuesto.
+   *
+   * El dinero no se mueve de un día a otro: lo que quedó contado al cerrar es
+   * con lo que se abre hoy. Tenía que acordarse y teclearlo cada mañana, con el
+   * campo en 0; si se le pasaba, el fondo desaparecía de la cuenta del día y al
+   * cerrar aparecía un sobrante que nadie se explicaba.
+   */
+  async function abrirCaja() {
+    let previo = null;
+    try { previo = await window.api.caja.ultimoCierre(); } catch { /* se abre sin propuesta */ }
+
+    const sugerido = previo && previo.efectivo_contado != null ? previo.efectivo_contado : null;
+    const fondo = h('input', {
+      type: 'number', min: '0', step: 'any',
+      value: sugerido != null ? String(sugerido) : '0',
+    });
+
+    const ayuda = sugerido != null
+      ? `Es lo que quedó contado en el cajón al cerrar el ${cuando(previo.cerrado_at)}. `
+        + 'Si el dinero se movió desde entonces, corrígelo.'
+      : 'Lo que hay en el cajón en este momento. Si está vacío, déjalo en 0.';
+
     openModal({
       title: 'Abrir caja',
-      body: h('div', {}, field('¿Con cuánto efectivo empiezas?', fondo, 'Lo que hay en el cajón en este momento. Si está vacío, déjalo en 0.')),
+      body: h('div', {},
+        field('¿Con cuánto efectivo empiezas?', fondo, ayuda),
+        sugerido != null
+          ? h('div', { class: 'caja-total', style: 'margin-top:12px' },
+              h('div', { class: 'k' }, 'Se dejó al cerrar'),
+              h('div', { class: 'v' }, money(sugerido)))
+          : null),
       buttons: [
         { label: 'Cancelar', kind: 'secondary', onClick: (close) => close() },
         { label: 'Abrir caja', kind: 'primary', onClick: async (close) => {
-          // Se manda tal cual se escribió: el servicio distingue "vacío" de "0".
-          await window.api.caja.abrir(fondo.value);
-          toast('Caja abierta', 'ok'); close(); CajaView(root);
+          try {
+            // Se manda tal cual se escribió: el servicio distingue "vacío" de "0".
+            await window.api.caja.abrir(fondo.value);
+            toast('Caja abierta', 'ok'); close(); CajaView(root);
+          } catch (e) { toast(e.message, 'err'); }
         } },
       ],
     });

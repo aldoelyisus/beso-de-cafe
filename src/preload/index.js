@@ -145,6 +145,7 @@ const api = {
   caja: {
     corte: (id) => invoke('caja:corte', { id }),
     cortes: (opts) => invoke('caja:cortes', opts || {}),
+    ultimoCierre: () => invoke('caja:ultimoCierre'),
     abrir: (fondo_inicial) => invoke('caja:abrir', { fondo_inicial }),
     movimiento: (tipo, monto, concepto) => invoke('caja:movimiento', { tipo, monto, concepto }),
     cerrar: (efectivo_contado, notas) => invoke('caja:cerrar', { efectivo_contado, notas }),
