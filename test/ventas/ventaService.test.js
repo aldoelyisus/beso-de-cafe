@@ -635,3 +635,92 @@ test('los movimientos del cambio quedan en el libro de inventario con su motivo'
   assert.match(mov.motivo, /Pasó a para llevar/i);
   assert.match(mov.referencia, new RegExp('Cuenta #' + v.id));
 });
+
+/**
+ * Lo que bloqueo la caja de la cafeteria: una cuenta pagada que no se cerraba.
+ *
+ * Cobraron una crepa, cancelaron los otros cinco productos, y la cuenta se
+ * quedo abierta sin deber nada. De ahi no se salia: el renglon pagado no se
+ * puede cancelar, y el dia no cierra mientras haya cuentas abiertas. La unica
+ * salida a mano era anular una venta que de verdad se habia cobrado.
+ */
+test('cancelar lo que falta cierra la cuenta si ya esta todo pagado', () => {
+  abrirCaja();
+  const { presId } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  let v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 3, paraLlevar: false }, ACTOR);
+
+  // Se cobra uno solo.
+  const items = svc.getVenta(v.id).items;
+  svc.cobrar(v.id, { itemIds: [items[0].id], metodo: 'efectivo' }, ACTOR);
+  assert.equal(svc.getVenta(v.id).estado, 'abierta', 'con pendientes sigue abierta');
+
+  // Se cancelan los otros dos: ya no queda nada por cobrar.
+  svc.cancelarItem(v.id, items[1].id, 'se arrepintieron', ACTOR);
+  assert.equal(svc.getVenta(v.id).estado, 'abierta', 'todavia queda uno pendiente');
+
+  const fin = svc.cancelarItem(v.id, items[2].id, 'se arrepintieron', ACTOR);
+  assert.equal(fin.estado, 'pagada', 'ya no debe nada: la cuenta se cierra sola');
+  assert.ok(fin.closed_at, 'y queda con fecha de cierre');
+});
+
+test('la cuenta cerrada asi no bloquea el cierre del dia', () => {
+  abrirCaja();
+  const { presId } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  let v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+  const items = svc.getVenta(v.id).items;
+  svc.cobrar(v.id, { itemIds: [items[0].id], metodo: 'efectivo' }, ACTOR);
+  svc.cancelarItem(v.id, items[1].id, 'ya no la quiso', ACTOR);
+
+  const abiertas = getDb().prepare("SELECT COUNT(*) c FROM ventas WHERE estado = 'abierta'").get().c;
+  assert.equal(abiertas, 0, 'no queda ninguna cuenta abierta trabando el dia');
+});
+
+test('cancelar todo SIN haber cobrado deja la cuenta abierta para seguir pidiendo', () => {
+  const { presId } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  let v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+  const items = svc.getVenta(v.id).items;
+
+  svc.cancelarItem(v.id, items[0].id, 'error de captura', ACTOR);
+  const r = svc.cancelarItem(v.id, items[1].id, 'error de captura', ACTOR);
+
+  assert.equal(r.estado, 'abierta', 'sin ningun pago no se cierra: se borro un error, no se cobro');
+});
+
+test('el renglon pagado sigue sin poder cancelarse', () => {
+  abrirCaja();
+  const { presId } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  let v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+  const items = svc.getVenta(v.id).items;
+  svc.cobrar(v.id, { itemIds: [items[0].id], metodo: 'efectivo' }, ACTOR);
+
+  assert.throws(() => svc.cancelarItem(v.id, items[0].id, 'x', ACTOR), /ya est\u00e1 pagado/i);
+});
+
+test('cerrar la cuenta al cancelar no toca lo cobrado ni el inventario del renglon pagado', () => {
+  abrirCaja();
+  const { presId, base, vaso } = frappe();
+  const m = mesaSvc.createMesa({ nombre: 'Mesa 1' });
+  let v = svc.abrirVenta({ tipo: 'mesa', mesaId: m.id }, ACTOR);
+  v = svc.agregarItem(v.id, { presentacionId: presId, cantidad: 2, paraLlevar: false }, ACTOR);
+  const items = svc.getVenta(v.id).items;
+  svc.cobrar(v.id, { itemIds: [items[0].id], metodo: 'efectivo' }, ACTOR);
+
+  const baseTrasCobro = stock(base.id);
+  const cobrado = svc.getVenta(v.id).pagado;
+
+  svc.cancelarItem(v.id, items[1].id, 'se arrepintio', ACTOR);
+  const fin = svc.getVenta(v.id);
+
+  assert.equal(fin.estado, 'pagada');
+  near(fin.pagado, cobrado, 'lo cobrado no se toca');
+  near(stock(base.id), baseTrasCobro + 40, 'solo regresan los insumos del cancelado');
+  assert.equal(stock(vaso.id), 100, 'el vaso ni se habia usado');
+});

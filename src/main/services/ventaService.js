@@ -297,9 +297,35 @@ function cancelarItem(ventaId, itemId, motivo, actor = {}) {
     db.prepare("UPDATE venta_items SET estado = 'cancelado', motivo_cancelacion = ? WHERE id = ?").run(String(motivo || ''), itemId);
     devolverConsumoDeItem(db, itemId, actor); // los insumos regresan (pregunta 16)
     recalcularDescuento(db, ventaId);
+    cerrarSiYaNoDebeNada(db, ventaId);
   });
   tx();
   return getVenta(ventaId);
+}
+
+/**
+ * Cierra la cuenta si ya no queda nada por cobrar y algo se cobró.
+ *
+ * Cobrar lo hace por su cuenta, pero cancelar también puede dejar la cuenta
+ * saldada: se cobra un producto, se cancelan los demás, y entonces no queda
+ * ningún pendiente. Eso dejaba la cuenta abierta para siempre, sin manera de
+ * sacarla: el renglón pagado no se puede cancelar, y el día no cierra mientras
+ * haya cuentas abiertas. La única salida era anular una venta de verdad.
+ *
+ * Una cuenta sin pagos NO se cierra aquí: cancelar todo deja la cuenta vacía,
+ * lista para seguir pidiendo, que es lo que se espera al borrarse un error.
+ */
+function cerrarSiYaNoDebeNada(db, ventaId) {
+  const pendientes = db.prepare(
+    "SELECT COUNT(*) c FROM venta_items WHERE venta_id = ? AND estado = 'activo' AND pago_id IS NULL"
+  ).get(ventaId).c;
+  if (pendientes > 0) return false;
+
+  const pagos = db.prepare('SELECT COUNT(*) c FROM venta_pagos WHERE venta_id = ?').get(ventaId).c;
+  if (pagos === 0) return false;
+
+  db.prepare("UPDATE ventas SET estado = 'pagada', closed_at = datetime('now') WHERE id = ? AND estado = 'abierta'").run(ventaId);
+  return true;
 }
 
 function aplicarPromocion(ventaId, promocionId, actor = {}) {
