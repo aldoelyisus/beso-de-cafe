@@ -102,6 +102,25 @@ async function openForm(reload, id, { meta, categorias, productos }) {
     return o;
   }));
   const cantidad = h('input', { type: 'number', min: '2', step: '1', value: p && p.cantidad_requerida ? p.cantidad_requerida : '2' });
+
+  // El segundo lado de un combo "uno de cada grupo".
+  const g1Tipo = h('select', {},
+    h('option', { value: 'categoria' }, 'Una categoría entera'),
+    h('option', { value: 'productos' }, 'Ciertos productos'));
+  const g2Tipo = h('select', {},
+    h('option', { value: 'categoria' }, 'Una categoría entera'),
+    h('option', { value: 'productos' }, 'Ciertos productos'));
+  const g2Categoria = h('select', {}, ...categorias.map((c) => {
+    const o = h('option', { value: String(c.id) }, c.nombre);
+    if (p && p.grupo2_categoria_id === c.id) o.selected = true;
+    return o;
+  }));
+  const g1Cantidad = h('input', { type: 'number', min: '1', step: '1', value: p && p.cantidad_requerida ? p.cantidad_requerida : '1' });
+  const g2Cantidad = h('input', { type: 'number', min: '1', step: '1', value: p && p.grupo2_cantidad ? p.grupo2_cantidad : '1' });
+  if (p && p.ambito === 'dos_grupos') {
+    g1Tipo.value = p.categoria_id ? 'categoria' : 'productos';
+    g2Tipo.value = p.grupo2_tipo === 'categoria' ? 'categoria' : 'productos';
+  }
   const valorTipo = h('select', {},
     h('option', { value: 'fijo' }, 'Precio fijo del combo ($)'),
     h('option', { value: 'porcentaje' }, '% de descuento')
@@ -109,75 +128,111 @@ async function openForm(reload, id, { meta, categorias, productos }) {
   if (p && p.valor_tipo === 'porcentaje') valorTipo.value = 'porcentaje';
   const valor = h('input', { type: 'number', min: '0', step: 'any', value: p ? p.valor : '' });
 
-  // Selector de "Ciertos productos": con pocos productos una lista simple
-  // basta, pero con 20+ hay que poder buscar, filtrar por categoría y marcar
-  // varios de golpe (si no, el usuario se pierde haciendo scroll uno por uno).
-  const pickerFiltro = { texto: '', categoria: '' };
-  const prodChecks = productos.map((pr) => {
-    const cb = h('input', { type: 'checkbox', value: String(pr.id) });
-    if (p && p.productos.some((x) => x.producto_id === pr.id)) cb.checked = true;
-    cb.addEventListener('change', () => actualizarContadorProductos());
-    return { pr, cb, el: h('label', { class: 'perm-check' }, cb, h('span', {}, `${esc(pr.nombre)}${pr.categoria_nombre ? ' · ' + esc(pr.categoria_nombre) : ''}`)) };
-  });
+  // Selector de productos: con pocos productos una lista simple basta, pero
+  // con 20+ hay que poder buscar, filtrar por categoría y marcar varios de
+  // golpe (si no, el usuario se pierde haciendo scroll uno por uno).
+  //
+  // Es una fábrica porque un combo "uno de cada grupo" necesita DOS listas
+  // independientes: los postres de un lado y los cafés del otro.
   const categoriasProductos = [...new Set(productos.map((pr) => pr.categoria_nombre || 'Otros'))];
-  const contadorProductos = h('span', { class: 'muted', style: 'font-size:12px' }, '');
-  function actualizarContadorProductos() {
-    const n = prodChecks.filter((c) => c.cb.checked).length;
-    contadorProductos.textContent = n === 1 ? '1 producto elegido' : `${n} productos elegidos`;
-  }
-  function coincideProducto(c) {
-    if (pickerFiltro.categoria && (c.pr.categoria_nombre || 'Otros') !== pickerFiltro.categoria) return false;
-    if (!pickerFiltro.texto) return true;
-    const t = pickerFiltro.texto.toLocaleLowerCase('es');
-    return `${c.pr.nombre} ${c.pr.categoria_nombre || ''}`.toLocaleLowerCase('es').includes(t);
-  }
-  const sinResultadosProductos = h('div', { class: 'empty', style: 'display:none' }, 'Ningún producto coincide con la búsqueda.');
-  function pintarProductosVisibles() {
-    // Nota: .perm-check trae su propio "display: flex", que en la cascada le
-    // gana al [hidden] del navegador (misma especificidad, gana la regla de
-    // autor) — por eso se oculta con style.display y no con el atributo hidden.
-    let visibles = 0;
-    for (const c of prodChecks) {
-      const vis = coincideProducto(c);
-      c.el.style.display = vis ? '' : 'none';
-      if (vis) visibles++;
+
+  function crearPicker(idsIniciales) {
+    const marcados = new Set(idsIniciales || []);
+    const filtro = { texto: '', categoria: '' };
+    const checks = productos.map((pr) => {
+      const cb = h('input', { type: 'checkbox', value: String(pr.id) });
+      if (marcados.has(pr.id)) cb.checked = true;
+      cb.addEventListener('change', () => actualizarContador());
+      return { pr, cb, el: h('label', { class: 'perm-check' }, cb, h('span', {}, `${esc(pr.nombre)}${pr.categoria_nombre ? ' · ' + esc(pr.categoria_nombre) : ''}`)) };
+    });
+    const contador = h('span', { class: 'muted', style: 'font-size:12px' }, '');
+    const sinResultados = h('div', { class: 'empty', style: 'display:none' }, 'Ningún producto coincide con la búsqueda.');
+
+    function actualizarContador() {
+      const n = checks.filter((c) => c.cb.checked).length;
+      contador.textContent = n === 1 ? '1 producto elegido' : `${n} productos elegidos`;
     }
-    sinResultadosProductos.style.display = visibles ? 'none' : '';
+    function coincide(c) {
+      if (filtro.categoria && (c.pr.categoria_nombre || 'Otros') !== filtro.categoria) return false;
+      if (!filtro.texto) return true;
+      const t = filtro.texto.toLocaleLowerCase('es');
+      return `${c.pr.nombre} ${c.pr.categoria_nombre || ''}`.toLocaleLowerCase('es').includes(t);
+    }
+    function pintar() {
+      // Nota: .perm-check trae su propio "display: flex", que en la cascada le
+      // gana al [hidden] del navegador (misma especificidad, gana la regla de
+      // autor) — por eso se oculta con style.display y no con el atributo hidden.
+      let visibles = 0;
+      for (const c of checks) {
+        const vis = coincide(c);
+        c.el.style.display = vis ? '' : 'none';
+        if (vis) visibles++;
+      }
+      sinResultados.style.display = visibles ? 'none' : '';
+    }
+    const lista = h('div', { class: 'prod-picker-list' }, ...checks.map((c) => c.el), sinResultados);
+
+    return {
+      seleccionados: () => checks.filter((c) => c.cb.checked).map((c) => Number(c.pr.id)),
+      el() {
+        pintar();
+        actualizarContador();
+        return h('div', {},
+          h('div', { class: 'cat-barra' },
+            SearchBox('Buscar producto…', (v) => { filtro.texto = v; pintar(); }, { delay: 120, value: filtro.texto }),
+            ChipRow(
+              [{ value: '', label: `Todas (${productos.length})` },
+               ...categoriasProductos.map((cat) => ({ value: cat, label: `${cat} (${productos.filter((pr) => (pr.categoria_nombre || 'Otros') === cat).length})` }))],
+              filtro.categoria,
+              (v) => { filtro.categoria = v; pintar(); }
+            )
+          ),
+          h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;margin:8px 0' },
+            contador,
+            h('div', {},
+              h('button', {
+                type: 'button', class: 'btn small secondary',
+                onclick: () => { for (const c of checks) if (coincide(c)) c.cb.checked = true; actualizarContador(); },
+              }, 'Marcar los visibles'),
+              h('button', {
+                type: 'button', class: 'btn ghost small', style: 'margin-left:6px',
+                onclick: () => { for (const c of checks) c.cb.checked = false; actualizarContador(); },
+              }, 'Vaciar selección'))
+          ),
+          lista
+        );
+      },
+    };
   }
-  const listaProductos = h('div', { class: 'prod-picker-list' }, ...prodChecks.map((c) => c.el), sinResultadosProductos);
-  function productosPickerEl() {
-    pintarProductosVisibles();
-    actualizarContadorProductos();
-    return h('div', {},
-      h('div', { class: 'cat-barra' },
-        SearchBox('Buscar producto…', (v) => { pickerFiltro.texto = v; pintarProductosVisibles(); }, { delay: 120, value: pickerFiltro.texto }),
-        ChipRow(
-          [{ value: '', label: `Todas (${productos.length})` },
-           ...categoriasProductos.map((cat) => ({ value: cat, label: `${cat} (${productos.filter((pr) => (pr.categoria_nombre || 'Otros') === cat).length})` }))],
-          pickerFiltro.categoria,
-          (v) => { pickerFiltro.categoria = v; pintarProductosVisibles(); }
-        )
-      ),
-      h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;margin:8px 0' },
-        contadorProductos,
-        h('div', {},
-          h('button', {
-            type: 'button', class: 'btn small secondary',
-            onclick: () => { for (const c of prodChecks) if (coincideProducto(c)) c.cb.checked = true; actualizarContadorProductos(); },
-          }, 'Marcar los visibles'),
-          h('button', {
-            type: 'button', class: 'btn ghost small', style: 'margin-left:6px',
-            onclick: () => { for (const c of prodChecks) c.cb.checked = false; actualizarContadorProductos(); },
-          }, 'Vaciar selección'))
-      ),
-      listaProductos
-    );
-  }
+
+  const marcadosDe = (grupo) => (p && p.productos ? p.productos.filter((x) => (x.grupo || 1) === grupo).map((x) => x.producto_id) : []);
+  const picker1 = crearPicker(marcadosDe(1));
+  const picker2 = crearPicker(marcadosDe(2));
+
+  // Cada forma de combo, dicha con un ejemplo: es la única manera de que se
+  // note la diferencia entre "cualquiera de estos" y "estos juntos".
+  const AYUDA_COMBO = {
+    dos_grupos: 'Pide algo de cada lado. Ej. un postre Y un café: dos postres no cuentan.',
+    categoria: 'Varios de la misma categoría. Ej. 2 frappés del sabor que sea.',
+    lista: 'Con que lleve esa cantidad de la lista, aplica. Ej. 2 cualesquiera de la barra.',
+    productos: 'Tienen que estar TODOS los marcados en la misma venta. Ej. este frappé con este waffle.',
+  };
 
   const dyn = h('div', {});
   function ambitoOptions(t) {
-    return t === 'monto_fijo' ? [['cuenta', 'A toda la cuenta'], ['productos', 'A ciertos productos']]
-      : [['categoria', 'Una categoría'], ['productos', 'Ciertos productos']];
+    if (t === 'monto_fijo') return [['cuenta', 'A toda la cuenta'], ['productos', 'A ciertos productos']];
+    // Un combo puede pedir cosas muy distintas, y la diferencia entre ellas es
+    // justo donde la gente se equivoca: "ciertos productos" sonaba a
+    // "cualquiera de estos" cuando en realidad los pedía TODOS.
+    if (t === 'combo') {
+      return [
+        ['dos_grupos', 'Uno de cada grupo (postre + café)'],
+        ['categoria', 'Varios de una categoría'],
+        ['lista', 'Cualquiera de estos productos'],
+        ['productos', 'Estos productos juntos'],
+      ];
+    }
+    return [['categoria', 'Una categoría'], ['productos', 'Ciertos productos']];
   }
   // Las opciones de "¿A qué aplica?" dependen del TIPO, así que solo se
   // reconstruyen cuando cambia el tipo. Antes se reconstruían en cada repintado
@@ -192,18 +247,42 @@ async function openForm(reload, id, { meta, categorias, productos }) {
     // productos" existe en los tres); si no, la primera opción.
     ambito.value = opciones.some(([v]) => v === antes) ? antes : opciones[0][0];
   }
+  /** Un lado del combo "uno de cada grupo". */
+  function grupoEl(titulo, selTipo, selCategoria, inpCantidad, picker, ejemplo) {
+    const caja = h('div', { class: 'pcard', style: 'margin-top:10px' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, titulo),
+      field('¿Qué entra?', selTipo, ejemplo));
+    if (selTipo.value === 'categoria') caja.appendChild(field('Categoría', selCategoria));
+    else {
+      caja.appendChild(h('div', { class: 'hint', style: 'margin-bottom:6px' }, 'Marca los productos que cuentan de este lado.'));
+      caja.appendChild(picker.el());
+    }
+    caja.appendChild(field('¿Cuántos?', inpCantidad, 'Normalmente 1'));
+    return caja;
+  }
+
   function renderDyn() {
     const t = tipo.value;
+    const a = ambito.value;
     dyn.innerHTML = '';
     if (t === 'dia') dyn.appendChild(field('Día de la semana', diaSemana));
-    dyn.appendChild(field('¿A qué aplica?', ambito));
-    if (ambito.value === 'categoria') dyn.appendChild(field('Categoría', categoria));
-    if (ambito.value === 'productos') {
-      dyn.appendChild(h('div', { class: 'section-title' }, 'Productos de la promoción'));
-      dyn.appendChild(productosPickerEl());
+    dyn.appendChild(field('¿A qué aplica?', ambito,
+      t === 'combo' ? AYUDA_COMBO[a] : ''));
+
+    if (a === 'dos_grupos') {
+      dyn.appendChild(grupoEl('Primer grupo', g1Tipo, categoria, g1Cantidad, picker1, 'Ej. los postres'));
+      dyn.appendChild(grupoEl('Segundo grupo', g2Tipo, g2Categoria, g2Cantidad, picker2, 'Ej. los cafés'));
+    } else {
+      if (a === 'categoria') dyn.appendChild(field('Categoría', categoria));
+      if (a === 'productos' || a === 'lista') {
+        dyn.appendChild(h('div', { class: 'section-title' }, 'Productos de la promoción'));
+        dyn.appendChild(picker1.el());
+      }
     }
+
     if (t === 'combo') {
-      if (ambito.value === 'categoria') dyn.appendChild(field('¿Cuántos productos?', cantidad, 'Ej. 2 frappés de cualquier sabor'));
+      if (a === 'categoria') dyn.appendChild(field('¿Cuántos productos?', cantidad, 'Ej. 2 frappés de cualquier sabor'));
+      if (a === 'lista') dyn.appendChild(field('¿Cuántos de la lista?', cantidad, 'Con que lleve estos, el combo aplica'));
       dyn.appendChild(field('Tipo de descuento', valorTipo));
       dyn.appendChild(field(valorTipo.value === 'fijo' ? 'Precio del combo ($)' : 'Porcentaje (%)', valor));
     } else if (t === 'dia') {
@@ -215,6 +294,8 @@ async function openForm(reload, id, { meta, categorias, productos }) {
   tipo.addEventListener('change', () => { rellenarAmbito(); renderDyn(); });
   ambito.addEventListener('change', renderDyn);
   valorTipo.addEventListener('change', renderDyn);
+  g1Tipo.addEventListener('change', renderDyn);
+  g2Tipo.addEventListener('change', renderDyn);
   rellenarAmbito();
   renderDyn();
 
@@ -239,12 +320,27 @@ async function openForm(reload, id, { meta, categorias, productos }) {
           fecha_fin: ff.value,
           ambito: ambito.value,
           dia_semana: Number(diaSemana.value),
-          categoria_id: ambito.value === 'categoria' ? Number(categoria.value) : null,
-          cantidad_requerida: Number(cantidad.value),
           valor_tipo: tipo.value === 'combo' ? valorTipo.value : (tipo.value === 'dia' ? 'porcentaje' : 'monto'),
           valor: Number(valor.value),
-          productoIds: ambito.value === 'productos' ? prodChecks.filter((c) => c.cb.checked).map((c) => Number(c.pr.id)) : [],
         };
+
+        const a = ambito.value;
+        if (a === 'dos_grupos') {
+          // Cada lado manda lo suyo: una categoría o su propia lista.
+          data.grupo1_tipo = g1Tipo.value;
+          data.categoria_id = g1Tipo.value === 'categoria' ? Number(categoria.value) : null;
+          data.cantidad_requerida = Number(g1Cantidad.value);
+          data.productoIds = g1Tipo.value === 'productos' ? picker1.seleccionados() : [];
+          data.grupo2_tipo = g2Tipo.value;
+          data.grupo2_categoria_id = g2Tipo.value === 'categoria' ? Number(g2Categoria.value) : null;
+          data.grupo2_cantidad = Number(g2Cantidad.value);
+          data.productoIds2 = g2Tipo.value === 'productos' ? picker2.seleccionados() : [];
+        } else {
+          data.categoria_id = a === 'categoria' ? Number(categoria.value) : null;
+          data.cantidad_requerida = Number(cantidad.value);
+          data.productoIds = (a === 'productos' || a === 'lista') ? picker1.seleccionados() : [];
+          data.productoIds2 = [];
+        }
         if (id) await window.api.promociones.update(id, data);
         else await window.api.promociones.create(data);
         toast(id ? 'Promoción actualizada' : 'Promoción creada', 'ok');
